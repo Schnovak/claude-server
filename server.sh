@@ -107,7 +107,7 @@ check_for_updates() {
                 echo ""
                 echo -e "  ${YELLOW}Restarting script...${NC}"
                 sleep 1
-                exec "$0" "$@"
+                exec bash "$PROJECT_ROOT/server.sh" "$@"
             else
                 print_err "Update failed. Try manually: git pull"
             fi
@@ -326,6 +326,8 @@ start_backend() {
     source venv/bin/activate
     nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$BACKEND_LOG_FILE" 2>&1 &
     echo $! > "$BACKEND_PID_FILE"
+    deactivate
+    cd "$PROJECT_ROOT"
 
     sleep 2
 

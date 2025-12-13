@@ -18,8 +18,10 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# State file to track setup completion
+# State files
 SETUP_DONE_FILE="$PROJECT_ROOT/.setup_complete"
+BACKEND_PID_FILE="$PROJECT_ROOT/.backend.pid"
+BACKEND_LOG_FILE="$PROJECT_ROOT/data/logs/backend.log"
 
 clear
 echo -e "${CYAN}"
@@ -48,6 +50,28 @@ check_command() {
 wait_for_key() {
     echo ""
     read -p "  Press Enter to continue..."
+}
+
+is_backend_running() {
+    if [ -f "$BACKEND_PID_FILE" ]; then
+        local pid=$(cat "$BACKEND_PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+stop_backend() {
+    if [ -f "$BACKEND_PID_FILE" ]; then
+        local pid=$(cat "$BACKEND_PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null
+            sleep 1
+            kill -9 "$pid" 2>/dev/null
+        fi
+        rm -f "$BACKEND_PID_FILE"
+    fi
 }
 
 # ============================================
@@ -209,10 +233,20 @@ show_menu() {
     echo ""
     echo -e "${BOLD}What would you like to do?${NC}"
     echo ""
-    echo -e "  ${CYAN}1${NC}) Start Backend Server"
-    echo -e "  ${CYAN}2${NC}) Start Backend + Frontend (Development)"
+
+    if is_backend_running; then
+        echo -e "  ${CYAN}1${NC}) Stop Backend Server"
+        echo -e "  ${CYAN}2${NC}) View Logs"
+        echo -e "  ${CYAN}3${NC}) Restart Backend"
+    else
+        echo -e "  ${CYAN}1${NC}) Start Backend Server"
+    fi
+
+    if check_command flutter; then
+        echo -e "  ${CYAN}f${NC}) Run Frontend (Flutter)"
+    fi
     if check_command docker; then
-        echo -e "  ${CYAN}3${NC}) Deploy with Docker (Production)"
+        echo -e "  ${CYAN}d${NC}) Deploy with Docker (Production)"
     fi
     echo ""
     echo -e "  ${CYAN}s${NC}) Re-run Setup"
@@ -222,47 +256,78 @@ show_menu() {
 }
 
 start_backend() {
-    echo ""
-    print_step "Starting backend server..."
-    echo ""
-    echo -e "  ${GREEN}API:${NC}  http://localhost:8000"
-    echo -e "  ${GREEN}Docs:${NC} http://localhost:8000/docs"
-    echo ""
-    echo -e "  ${YELLOW}Press Ctrl+C to stop${NC}"
-    echo ""
-    
-    cd "$PROJECT_ROOT/backend"
-    source venv/bin/activate
-    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-}
-
-start_dev() {
-    if ! check_command flutter; then
-        print_err "Flutter not installed. Use option 1 for backend only."
+    if is_backend_running; then
+        print_warn "Backend already running"
         return
     fi
-    
+
     echo ""
-    print_step "Starting development servers..."
-    echo ""
-    echo -e "  ${GREEN}Backend:${NC}  http://localhost:8000"
-    echo -e "  ${GREEN}Frontend:${NC} Will open in Chrome"
-    echo ""
-    
-    # Start backend in background
+    print_step "Starting backend server..."
+
+    # Ensure log directory exists
+    mkdir -p "$(dirname "$BACKEND_LOG_FILE")"
+
+    # Start in background
     cd "$PROJECT_ROOT/backend"
     source venv/bin/activate
-    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-    BACKEND_PID=$!
-    
+    nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$BACKEND_LOG_FILE" 2>&1 &
+    echo $! > "$BACKEND_PID_FILE"
+
     sleep 2
-    
-    # Start frontend
+
+    if is_backend_running; then
+        echo ""
+        print_ok "Backend started!"
+        echo ""
+        echo -e "  ${GREEN}API:${NC}  http://localhost:8000"
+        echo -e "  ${GREEN}Docs:${NC} http://localhost:8000/docs"
+        echo -e "  ${GREEN}Logs:${NC} $BACKEND_LOG_FILE"
+    else
+        print_err "Failed to start backend. Check logs:"
+        echo ""
+        tail -20 "$BACKEND_LOG_FILE"
+    fi
+
+    wait_for_key
+}
+
+view_logs() {
+    if [ ! -f "$BACKEND_LOG_FILE" ]; then
+        print_warn "No logs yet"
+        wait_for_key
+        return
+    fi
+
+    echo ""
+    echo -e "${BOLD}Backend Logs${NC} (Ctrl+C to exit)"
+    echo -e "${CYAN}────────────────────────────────────────${NC}"
+    tail -f "$BACKEND_LOG_FILE"
+}
+
+start_frontend() {
+    if ! check_command flutter; then
+        print_err "Flutter not installed."
+        wait_for_key
+        return
+    fi
+
+    if ! is_backend_running; then
+        echo ""
+        print_warn "Backend not running. Start it first?"
+        read -p "  Start backend? [Y/n] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+            start_backend
+        fi
+    fi
+
+    echo ""
+    print_step "Starting Flutter frontend..."
+    echo -e "  ${YELLOW}This will open Chrome. Press q in terminal to stop.${NC}"
+    echo ""
+
     cd "$PROJECT_ROOT/frontend"
     flutter run -d chrome
-    
-    # Cleanup
-    kill $BACKEND_PID 2>/dev/null
 }
 
 deploy_docker() {
@@ -360,22 +425,37 @@ while true; do
     fi
     
     # Check if backend running
-    if curl -s http://localhost:8000/api/health > /dev/null 2>&1; then
-        echo -e "  ${GREEN}●${NC} Backend running"
+    if is_backend_running; then
+        echo -e "  ${GREEN}●${NC} Backend running (PID: $(cat "$BACKEND_PID_FILE"))"
     else
         echo -e "  ${YELLOW}●${NC} Backend stopped"
     fi
-    
+
     show_menu
     read -p "  Select: " choice
-    
-    case $choice in
-        1) start_backend ;;
-        2) start_dev ;;
-        3) deploy_docker ;;
-        s|S) run_setup; wait_for_key ;;
-        c|C) edit_config ;;
-        q|Q) echo ""; exit 0 ;;
-        *) print_warn "Invalid option" ;;
-    esac
+
+    # Handle dynamic menu based on backend state
+    if is_backend_running; then
+        case $choice in
+            1) stop_backend; print_ok "Backend stopped"; wait_for_key ;;
+            2) view_logs ;;
+            3) stop_backend; start_backend ;;
+            f|F) start_frontend ;;
+            d|D) deploy_docker; wait_for_key ;;
+            s|S) run_setup; wait_for_key ;;
+            c|C) edit_config ;;
+            q|Q) echo ""; exit 0 ;;
+            *) ;;
+        esac
+    else
+        case $choice in
+            1) start_backend ;;
+            f|F) start_frontend ;;
+            d|D) deploy_docker; wait_for_key ;;
+            s|S) run_setup; wait_for_key ;;
+            c|C) edit_config ;;
+            q|Q) echo ""; exit 0 ;;
+            *) ;;
+        esac
+    fi
 done

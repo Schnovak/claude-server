@@ -236,6 +236,7 @@ class ClaudeService:
         cmd = [settings.claude_binary]
         cmd.extend(["--print", "-p", message])
         cmd.extend(["--output-format", "stream-json"])
+        cmd.append("--verbose")  # Required for stream-json
         cmd.append("--include-partial-messages")
 
         # Bypass permission prompts - safe because we sandbox with firejail
@@ -295,35 +296,24 @@ class ClaudeService:
                             event = json.loads(line)
                             event_type = event.get("type", "")
 
-                            # Handle different event types from stream-json
-                            if event_type == "assistant":
-                                # Partial or complete assistant message
-                                msg = event.get("message", {})
-                                content = msg.get("content", [])
-                                for block in content:
-                                    if block.get("type") == "text":
-                                        text = block.get("text", "")
-                                        if text and text not in full_response:
-                                            # Only send new text
-                                            new_text = text[len(full_response):] if text.startswith(full_response) else text
-                                            if new_text:
-                                                full_response = text
-                                                yield json.dumps({"text": new_text})
+                            # Handle stream_event (contains nested event with deltas)
+                            if event_type == "stream_event":
+                                inner_event = event.get("event", {})
+                                inner_type = inner_event.get("type", "")
 
-                            elif event_type == "content_block_delta":
-                                # Incremental text delta
-                                delta = event.get("delta", {})
-                                if delta.get("type") == "text_delta":
-                                    text = delta.get("text", "")
-                                    if text:
-                                        full_response += text
-                                        yield json.dumps({"text": text})
+                                if inner_type == "content_block_delta":
+                                    delta = inner_event.get("delta", {})
+                                    if delta.get("type") == "text_delta":
+                                        text = delta.get("text", "")
+                                        if text:
+                                            full_response += text
+                                            yield json.dumps({"text": text})
 
                             elif event_type == "result":
-                                # Final result
+                                # Final result - capture any remaining text
                                 result_text = event.get("result", "")
-                                if result_text and result_text != full_response:
-                                    new_text = result_text[len(full_response):] if len(result_text) > len(full_response) else ""
+                                if result_text and len(result_text) > len(full_response):
+                                    new_text = result_text[len(full_response):]
                                     if new_text:
                                         yield json.dumps({"text": new_text})
                                     full_response = result_text

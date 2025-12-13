@@ -62,6 +62,60 @@ is_backend_running() {
     return 1
 }
 
+check_for_updates() {
+    # Skip if not a git repo
+    if [ ! -d "$PROJECT_ROOT/.git" ]; then
+        return
+    fi
+
+    # Fetch latest (silently)
+    git -C "$PROJECT_ROOT" fetch origin main --quiet 2>/dev/null || return
+
+    # Check if behind
+    LOCAL=$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null)
+    REMOTE=$(git -C "$PROJECT_ROOT" rev-parse origin/main 2>/dev/null)
+
+    if [ "$LOCAL" != "$REMOTE" ] && [ -n "$REMOTE" ]; then
+        echo ""
+        echo -e "  ${YELLOW}╔═══════════════════════════════════════╗${NC}"
+        echo -e "  ${YELLOW}║         Update Available!             ║${NC}"
+        echo -e "  ${YELLOW}╚═══════════════════════════════════════╝${NC}"
+        echo ""
+
+        # Show what's new
+        echo -e "  ${BOLD}Changes:${NC}"
+        git -C "$PROJECT_ROOT" log --oneline HEAD..origin/main 2>/dev/null | head -5 | while read line; do
+            echo -e "    ${CYAN}•${NC} $line"
+        done
+        echo ""
+
+        read -p "  Update now? [Y/n] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+            echo ""
+            print_step "Updating..."
+
+            # Stop backend if running
+            if is_backend_running; then
+                stop_backend
+                print_ok "Backend stopped for update"
+            fi
+
+            # Pull updates
+            if git -C "$PROJECT_ROOT" pull origin main --quiet; then
+                print_ok "Updated successfully!"
+                echo ""
+                echo -e "  ${YELLOW}Restarting script...${NC}"
+                sleep 1
+                exec "$0" "$@"
+            else
+                print_err "Update failed. Try manually: git pull"
+            fi
+            wait_for_key
+        fi
+    fi
+}
+
 stop_backend() {
     if [ -f "$BACKEND_PID_FILE" ]; then
         local pid=$(cat "$BACKEND_PID_FILE")
@@ -398,6 +452,9 @@ edit_config() {
 # ============================================
 # Main
 # ============================================
+
+# Check for updates on startup
+check_for_updates
 
 # Check if setup needed
 if [ ! -f "$SETUP_DONE_FILE" ]; then

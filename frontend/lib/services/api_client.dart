@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -6,6 +7,37 @@ import '../models/user.dart';
 import '../models/project.dart';
 import '../models/job.dart';
 import '../models/claude_settings.dart';
+
+/// Represents a streaming chunk from Claude
+class ClaudeStreamChunk {
+  final String? text;
+  final bool done;
+  final List<String> filesModified;
+  final List<String> suggestedCommands;
+  final String? error;
+
+  ClaudeStreamChunk({
+    this.text,
+    this.done = false,
+    this.filesModified = const [],
+    this.suggestedCommands = const [],
+    this.error,
+  });
+
+  factory ClaudeStreamChunk.fromJson(Map<String, dynamic> json) {
+    return ClaudeStreamChunk(
+      text: json['text'],
+      done: json['done'] ?? false,
+      filesModified: json['files_modified'] != null
+          ? List<String>.from(json['files_modified'])
+          : [],
+      suggestedCommands: json['suggested_commands'] != null
+          ? List<String>.from(json['suggested_commands'])
+          : [],
+      error: json['error'],
+    );
+  }
+}
 
 class ApiException implements Exception {
   final int statusCode;
@@ -249,6 +281,63 @@ class ApiClient {
     );
     final data = await _handleResponse(response);
     return ClaudeMessage.fromJson(data, userMessage: message);
+  }
+
+  /// Stream a message to Claude using Server-Sent Events
+  Stream<ClaudeStreamChunk> sendClaudeMessageStream(
+    String message, {
+    String? projectId,
+    bool continueConversation = false,
+  }) async* {
+    final client = http.Client();
+    try {
+      final request = http.Request(
+        'POST',
+        Uri.parse('$baseUrl/claude/message/stream'),
+      );
+      request.headers.addAll(_headers);
+      request.body = jsonEncode({
+        'message': message,
+        if (projectId != null) 'project_id': projectId,
+        'continue_conversation': continueConversation,
+      });
+
+      final streamedResponse = await client.send(request);
+
+      if (streamedResponse.statusCode != 200) {
+        throw ApiException(
+          streamedResponse.statusCode,
+          'Stream request failed',
+        );
+      }
+
+      // Buffer for incomplete lines
+      String buffer = '';
+
+      await for (final chunk in streamedResponse.stream.transform(utf8.decoder)) {
+        buffer += chunk;
+
+        // Process complete SSE messages (format: "data: {...}\n\n")
+        while (buffer.contains('\n\n')) {
+          final endIndex = buffer.indexOf('\n\n');
+          final line = buffer.substring(0, endIndex);
+          buffer = buffer.substring(endIndex + 2);
+
+          if (line.startsWith('data: ')) {
+            final jsonStr = line.substring(6); // Remove "data: " prefix
+            try {
+              final data = jsonDecode(jsonStr);
+              yield ClaudeStreamChunk.fromJson(data);
+            } catch (e) {
+              // Skip malformed JSON
+              debugPrint('Error parsing SSE chunk: $e');
+            }
+          }
+        }
+      }
+    } finally {
+      client.close();
+    }
   }
 
   Future<List<ClaudePlugin>> getInstalledPlugins() async {

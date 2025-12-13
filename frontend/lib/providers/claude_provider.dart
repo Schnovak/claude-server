@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/claude_settings.dart';
@@ -15,6 +16,11 @@ class ClaudeProvider extends ChangeNotifier {
   bool _hasApiKey = false;
   String? _error;
 
+  // Streaming state
+  String _streamingResponse = '';
+  String _pendingUserMessage = '';
+  StreamSubscription<ClaudeStreamChunk>? _streamSubscription;
+
   ClaudeSettings? get settings => _settings;
   List<String> get availableModels => _availableModels;
   List<ClaudePlugin> get installedPlugins => _installedPlugins;
@@ -24,6 +30,8 @@ class ClaudeProvider extends ChangeNotifier {
   bool get isSending => _isSending;
   bool get hasApiKey => _hasApiKey;
   String? get error => _error;
+  String get streamingResponse => _streamingResponse;
+  String get pendingUserMessage => _pendingUserMessage;
 
   void updateAuth(AuthProvider auth) {
     if (auth.isAuthenticated) {
@@ -120,7 +128,87 @@ class ClaudeProvider extends ChangeNotifier {
     }
   }
 
-  Future<ClaudeMessage> sendMessage(
+  /// Send a message with live streaming updates
+  Future<void> sendMessage(
+    String message, {
+    String? projectId,
+    bool continueConversation = false,
+  }) async {
+    // Cancel any existing stream
+    await _streamSubscription?.cancel();
+
+    _isSending = true;
+    _streamingResponse = '';
+    _pendingUserMessage = message;
+    _error = null;
+    notifyListeners();
+
+    List<String> filesModified = [];
+    List<String> suggestedCommands = [];
+
+    try {
+      final stream = apiClient.sendClaudeMessageStream(
+        message,
+        projectId: projectId,
+        continueConversation: continueConversation,
+      );
+
+      final completer = Completer<void>();
+
+      _streamSubscription = stream.listen(
+        (chunk) {
+          if (chunk.error != null) {
+            _error = chunk.error;
+            notifyListeners();
+            return;
+          }
+
+          if (chunk.text != null) {
+            _streamingResponse += chunk.text!;
+            notifyListeners();
+          }
+
+          if (chunk.done) {
+            filesModified = chunk.filesModified;
+            suggestedCommands = chunk.suggestedCommands;
+          }
+        },
+        onError: (e) {
+          _error = e.toString();
+          notifyListeners();
+          if (!completer.isCompleted) completer.completeError(e);
+        },
+        onDone: () {
+          // Add completed message to history
+          final claudeMessage = ClaudeMessage(
+            userMessage: message,
+            response: _streamingResponse,
+            filesModified: filesModified,
+            suggestedCommands: suggestedCommands,
+          );
+          _chatHistory.add(claudeMessage);
+          _streamingResponse = '';
+          _pendingUserMessage = '';
+          _isSending = false;
+          notifyListeners();
+          if (!completer.isCompleted) completer.complete();
+        },
+        cancelOnError: true,
+      );
+
+      await completer.future;
+    } catch (e) {
+      _error = e.toString();
+      _isSending = false;
+      _streamingResponse = '';
+      _pendingUserMessage = '';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// Send a message without streaming (fallback)
+  Future<ClaudeMessage> sendMessageSync(
     String message, {
     String? projectId,
     bool continueConversation = false,

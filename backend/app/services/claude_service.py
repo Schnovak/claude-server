@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncGenerator
 import logging
 import yaml
 
@@ -209,6 +209,97 @@ class ClaudeService:
         except Exception as e:
             logger.error(f"Error calling Claude: {e}")
             raise
+
+    async def send_message_stream(
+        self,
+        message: str,
+        project_id: Optional[str] = None,
+        continue_conversation: bool = False,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Send a message to Claude Code and stream the response.
+
+        Yields JSON strings with either 'text' chunks or final 'done' message.
+        """
+        # Determine working directory
+        if project_id:
+            cwd = settings.get_project_path(self.user_id, project_id)
+        else:
+            cwd = self.workspace
+
+        # Build command
+        cmd = [settings.claude_binary]
+        cmd.extend(["--print", "-p", message])
+
+        if continue_conversation:
+            cmd.append("--continue")
+
+        try:
+            # Build environment with API key
+            env = {**os.environ, "CLAUDE_CONFIG_DIR": str(self.claude_config)}
+            api_key = await self.get_api_key()
+            if api_key:
+                env["ANTHROPIC_API_KEY"] = api_key
+
+            # Sandbox the command
+            allowed_paths = [self.workspace, self.claude_config]
+            if project_id:
+                allowed_paths.append(cwd)
+
+            sandboxed_cmd = self._build_sandboxed_command(
+                cmd,
+                allowed_paths=allowed_paths,
+            )
+
+            process = await asyncio.create_subprocess_exec(
+                *sandboxed_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                env=env,
+            )
+
+            full_response = ""
+
+            # Read stdout line by line and yield chunks
+            while True:
+                try:
+                    # Read a chunk (up to 1KB at a time for responsiveness)
+                    chunk = await asyncio.wait_for(
+                        process.stdout.read(1024),
+                        timeout=300
+                    )
+                    if not chunk:
+                        break
+
+                    text = chunk.decode("utf-8", errors="replace")
+                    full_response += text
+
+                    # Yield the text chunk
+                    yield json.dumps({"text": text})
+
+                except asyncio.TimeoutError:
+                    yield json.dumps({"error": "Response timed out"})
+                    break
+
+            # Wait for process to complete
+            await process.wait()
+
+            # Read any stderr
+            stderr = await process.stderr.read()
+            if stderr:
+                logger.warning(f"Claude stderr: {stderr.decode('utf-8')}")
+
+            # Send final message with metadata
+            yield json.dumps({
+                "done": True,
+                "files_modified": self._extract_modified_files(full_response),
+                "suggested_commands": self._extract_commands(full_response),
+            })
+
+        except Exception as e:
+            logger.error(f"Error streaming Claude response: {e}")
+            yield json.dumps({"error": str(e)})
 
     async def get_available_models(self) -> List[str]:
         """Get list of available Claude models."""

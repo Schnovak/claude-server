@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -281,3 +282,52 @@ async def send_project_message(
     # Override project_id from path
     request.project_id = project_id
     return await send_message(request, current_user, db)
+
+
+# ============== Streaming Chat ==============
+
+@router.post("/message/stream")
+async def send_message_stream(
+    request: ClaudeMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Send a message to Claude and stream the response using Server-Sent Events."""
+    # Verify project if specified
+    if request.project_id:
+        result = await db.execute(
+            select(Project).where(
+                Project.id == request.project_id,
+                Project.owner_id == current_user.id
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+
+    service = ClaudeService(current_user.id)
+
+    async def event_generator():
+        try:
+            async for chunk in service.send_message_stream(
+                message=request.message,
+                project_id=request.project_id,
+                continue_conversation=request.continue_conversation,
+            ):
+                # SSE format: data: <json>\n\n
+                yield f"data: {chunk}\n\n"
+        except Exception as e:
+            import json
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )

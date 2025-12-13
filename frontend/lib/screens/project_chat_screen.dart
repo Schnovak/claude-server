@@ -15,7 +15,7 @@ class ProjectChatScreen extends StatefulWidget {
   State<ProjectChatScreen> createState() => _ProjectChatScreenState();
 }
 
-class _ProjectChatScreenState extends State<ProjectChatScreen> {
+class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindingObserver {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
@@ -23,10 +23,19 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkApiKey();
       _focusNode.requestFocus();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-focus when app resumes
+    if (state == AppLifecycleState.resumed) {
+      _focusNode.requestFocus();
+    }
   }
 
   void _checkApiKey() {
@@ -72,6 +81,7 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _messageController.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
@@ -127,47 +137,68 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> {
   Widget build(BuildContext context) {
     return Consumer<ClaudeProvider>(
       builder: (context, provider, _) {
+        // Calculate total items (history + streaming bubble if sending)
+        final isStreaming = provider.isSending;
+        final itemCount = provider.chatHistory.length + (isStreaming ? 1 : 0);
+        final showEmptyView = provider.chatHistory.isEmpty && !isStreaming;
+
+        // Auto-scroll when streaming
+        if (isStreaming) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+        }
+
         // Show API key warning banner if not configured
-        return Column(
-          children: [
-            if (!provider.hasApiKey)
-              MaterialBanner(
-                content: const Text('API key not configured. Chat will not work.'),
-                leading: const Icon(Icons.warning, color: Colors.orange),
-                backgroundColor: Theme.of(context).colorScheme.errorContainer.withOpacity(0.3),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                      );
-                    },
-                    child: const Text('Configure'),
-                  ),
-                ],
-              ),
-            Expanded(
-              child: provider.chatHistory.isEmpty
-                  ? _EmptyChatView(projectName: widget.project.name)
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.all(16),
-                      itemCount: provider.chatHistory.length,
-                      itemBuilder: (context, index) {
-                        final message = provider.chatHistory[index];
-                        return _ChatBubble(message: message);
+        return GestureDetector(
+          // Re-focus on tap anywhere in the chat area
+          onTap: () => _focusNode.requestFocus(),
+          child: Column(
+            children: [
+              if (!provider.hasApiKey)
+                MaterialBanner(
+                  content: const Text('API key not configured. Chat will not work.'),
+                  leading: const Icon(Icons.warning, color: Colors.orange),
+                  backgroundColor: Theme.of(context).colorScheme.errorContainer.withOpacity(0.3),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                        );
                       },
+                      child: const Text('Configure'),
                     ),
-            ),
-            _ChatInputBar(
-              controller: _messageController,
-              focusNode: _focusNode,
-              onSend: _sendMessage,
-              isSending: provider.isSending,
-              onClear: () => provider.clearChatHistory(),
-            ),
-          ],
+                  ],
+                ),
+              Expanded(
+                child: showEmptyView
+                    ? _EmptyChatView(projectName: widget.project.name)
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: itemCount,
+                        itemBuilder: (context, index) {
+                          // Show streaming response as last item
+                          if (isStreaming && index == itemCount - 1) {
+                            return _StreamingBubble(
+                              userMessage: provider.pendingUserMessage,
+                              response: provider.streamingResponse,
+                            );
+                          }
+                          final message = provider.chatHistory[index];
+                          return _ChatBubble(message: message);
+                        },
+                      ),
+              ),
+              _ChatInputBar(
+                controller: _messageController,
+                focusNode: _focusNode,
+                onSend: _sendMessage,
+                isSending: provider.isSending,
+                onClear: () => provider.clearChatHistory(),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -324,6 +355,112 @@ class _ChatBubble extends StatelessWidget {
                       }).toList(),
                     ),
                   ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Widget to display a streaming response with typing indicator
+class _StreamingBubble extends StatelessWidget {
+  final String userMessage;
+  final String response;
+
+  const _StreamingBubble({
+    required this.userMessage,
+    required this.response,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // User message (if provided)
+          if (userMessage.isNotEmpty)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                ),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  userMessage,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+            ),
+          if (userMessage.isNotEmpty) const SizedBox(height: 8),
+          // Claude streaming response
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75,
+              ),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.smart_toy,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Claude',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (response.isEmpty)
+                    Text(
+                      'Thinking...',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.outline,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    )
+                  else
+                    SelectableText(
+                      response,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
                 ],
               ),
             ),

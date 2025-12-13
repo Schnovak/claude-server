@@ -578,16 +578,18 @@ class _GitScreenState extends State<GitScreen> {
                           await _loadGitInfo();
 
                           final webUrl = result['web_url'] as String?;
+                          final needsCommit = result['needs_commit'] == true;
+                          final message = result['message'] as String? ?? 'Repository created!';
+
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text(
-                                webUrl != null
-                                    ? 'Created: $webUrl'
-                                    : 'Repository created!',
-                              ),
+                              content: Text(message),
+                              backgroundColor: needsCommit ? Colors.orange : Colors.green,
+                              duration: Duration(seconds: needsCommit ? 5 : 3),
                               action: webUrl != null
                                   ? SnackBarAction(
                                       label: 'Open',
+                                      textColor: Colors.white,
                                       onPressed: () async {
                                         final uri = Uri.parse(webUrl);
                                         if (await canLaunchUrl(uri)) {

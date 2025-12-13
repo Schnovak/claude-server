@@ -386,6 +386,15 @@ async def create_github_repo(
             detail="Not a git repository. Initialize git first."
         )
 
+    # Check if there are any commits
+    code, commit_count, _ = await run_git_command(
+        project_path, "rev-list", "--count", "HEAD"
+    )
+    has_commits = code == 0 and commit_count.strip().isdigit() and int(commit_count.strip()) > 0
+
+    # If push requested but no commits, we'll skip push and warn user
+    should_push = request.push and has_commits
+
     # Use project name if no repo name specified
     repo_name = request.name or project.name
 
@@ -404,7 +413,7 @@ async def create_github_repo(
     if request.description:
         gh_args.extend(["--description", request.description])
 
-    if request.push:
+    if should_push:
         gh_args.append("--push")
 
     # Run gh repo create with user's GitHub token
@@ -442,11 +451,20 @@ async def create_github_repo(
     remote_url = remote_out.strip() if code == 0 else None
     web_url = git_url_to_web_url(remote_url) if remote_url else None
 
+    # Build response message
+    if should_push:
+        message = f"Repository '{repo_name}' created and pushed to GitHub"
+    elif request.push and not has_commits:
+        message = f"Repository '{repo_name}' created on GitHub. Make a commit first, then push."
+    else:
+        message = f"Repository '{repo_name}' created on GitHub"
+
     return {
-        "message": f"Repository '{repo_name}' created on GitHub",
+        "message": message,
         "remote_url": remote_url,
         "web_url": web_url,
-        "pushed": request.push
+        "pushed": should_push,
+        "needs_commit": request.push and not has_commits,
     }
 
 

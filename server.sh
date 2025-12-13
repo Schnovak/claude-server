@@ -353,9 +353,35 @@ view_logs() {
     fi
 
     echo ""
-    echo -e "${BOLD}Backend Logs${NC} (Ctrl+C to exit)"
-    echo -e "${CYAN}────────────────────────────────────────${NC}"
-    tail -f "$BACKEND_LOG_FILE"
+    echo -e "  ${CYAN}1${NC}) View recent logs"
+    echo -e "  ${CYAN}2${NC}) Follow live logs"
+    echo -e "  ${CYAN}b${NC}) Back"
+    echo ""
+    read -p "  Select: " log_choice
+
+    case $log_choice in
+        1)
+            echo ""
+            echo -e "${BOLD}Recent Logs${NC} (press ${CYAN}q${NC} to go back)"
+            echo -e "${CYAN}────────────────────────────────────────${NC}"
+            if check_command less; then
+                less +G "$BACKEND_LOG_FILE"
+            else
+                tail -50 "$BACKEND_LOG_FILE"
+                wait_for_key
+            fi
+            ;;
+        2)
+            echo ""
+            echo -e "${BOLD}Live Logs${NC} (press ${CYAN}Enter${NC} to stop)"
+            echo -e "${CYAN}────────────────────────────────────────${NC}"
+            # Run tail in background, wait for Enter to stop
+            tail -f "$BACKEND_LOG_FILE" &
+            TAIL_PID=$!
+            read -r
+            kill $TAIL_PID 2>/dev/null
+            ;;
+    esac
 }
 
 start_frontend() {

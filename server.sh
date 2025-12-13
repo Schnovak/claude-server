@@ -433,24 +433,38 @@ start_frontend() {
     else
         # Works everywhere, including "real Linux" and WSL, and still uses your browser
         echo -e "  ${GREEN}Frontend:${NC} Starting web server"
-        echo -e "  Opening: ${CYAN}http://localhost:5173${NC}"
+        echo -e "  Will open: ${CYAN}http://localhost:5173${NC} when ready"
         echo ""
 
-        # Open browser in background after a short delay to let the server start
+        # Open browser in background once server is actually listening
         (
-            sleep 3
             local url="http://localhost:5173"
-            if grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null; then
-                # WSL: use Windows browser via wslview or cmd.exe
-                if check_command wslview; then
-                    wslview "$url" 2>/dev/null
-                else
-                    cmd.exe /c start "$url" 2>/dev/null
+            local max_attempts=60  # Wait up to 60 seconds
+            local attempt=0
+
+            # Wait for port 5173 to be listening
+            while [ $attempt -lt $max_attempts ]; do
+                if curl -s --head --connect-timeout 1 "$url" >/dev/null 2>&1; then
+                    break
                 fi
-            elif check_command xdg-open; then
-                xdg-open "$url" 2>/dev/null
-            elif check_command open; then
-                open "$url" 2>/dev/null
+                sleep 1
+                attempt=$((attempt + 1))
+            done
+
+            # Only open browser if server is ready
+            if [ $attempt -lt $max_attempts ]; then
+                if grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null; then
+                    # WSL: use Windows browser via wslview or cmd.exe
+                    if check_command wslview; then
+                        wslview "$url" 2>/dev/null
+                    else
+                        cmd.exe /c start "$url" 2>/dev/null
+                    fi
+                elif check_command xdg-open; then
+                    xdg-open "$url" 2>/dev/null
+                elif check_command open; then
+                    open "$url" 2>/dev/null
+                fi
             fi
         ) &
 

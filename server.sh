@@ -441,41 +441,47 @@ start_frontend() {
         echo -e "  Will open: ${CYAN}http://localhost:5173${NC} when ready"
         echo ""
 
-        # Open browser in background once Flutter app is actually being served
+        # Start Flutter and capture output to detect when app is ready
+        # We'll pipe through tee to both show output and scan for ready message
+        local ready_marker="/tmp/flutter_ready_$$"
+        rm -f "$ready_marker"
+
+        # Background process to open browser when Flutter signals ready
         (
             local url="http://localhost:5173"
-            local max_attempts=120  # Wait up to 120 seconds (Flutter compile can be slow)
-            local attempt=0
+            local max_attempts=180  # Wait up to 3 minutes
 
-            # Wait for main.dart.js to be served (indicates Flutter is fully compiled and ready)
-            # Check the compiled JS file directly - this only exists when app is truly ready
-            while [ $attempt -lt $max_attempts ]; do
-                # Check if main.dart.js returns 200 (means Flutter finished compiling)
-                if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "$url/main.dart.js" 2>/dev/null | grep -q "200"; then
+            # Wait for Flutter to signal the app is being served
+            for i in $(seq 1 $max_attempts); do
+                if [ -f "$ready_marker" ]; then
+                    # Small delay to ensure server is fully ready
+                    sleep 1
+                    if grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null; then
+                        if check_command wslview; then
+                            wslview "$url" 2>/dev/null
+                        else
+                            cmd.exe /c start "$url" 2>/dev/null
+                        fi
+                    elif check_command xdg-open; then
+                        xdg-open "$url" 2>/dev/null
+                    elif check_command open; then
+                        open "$url" 2>/dev/null
+                    fi
                     break
                 fi
                 sleep 1
-                attempt=$((attempt + 1))
             done
-
-            # Only open browser if Flutter app is ready
-            if [ $attempt -lt $max_attempts ]; then
-                if grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null; then
-                    # WSL: use Windows browser via wslview or cmd.exe
-                    if check_command wslview; then
-                        wslview "$url" 2>/dev/null
-                    else
-                        cmd.exe /c start "$url" 2>/dev/null
-                    fi
-                elif check_command xdg-open; then
-                    xdg-open "$url" 2>/dev/null
-                elif check_command open; then
-                    open "$url" 2>/dev/null
-                fi
-            fi
+            rm -f "$ready_marker"
         ) &
 
-        flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5173 2>&1
+        # Run Flutter and watch for the ready message
+        flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5173 2>&1 | while IFS= read -r line; do
+            echo "$line"
+            # Check if Flutter says the app is being served
+            if echo "$line" | grep -q "is being served at"; then
+                touch "$ready_marker"
+            fi
+        done
     fi
 
     echo ""

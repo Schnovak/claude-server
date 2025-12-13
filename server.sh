@@ -431,10 +431,29 @@ start_frontend() {
         flutter run -d chromium 2>&1
 
     else
-        # Works everywhere, including “real Linux” and WSL, and still uses your browser
+        # Works everywhere, including "real Linux" and WSL, and still uses your browser
         echo -e "  ${GREEN}Frontend:${NC} Starting web server"
-        echo -e "  Open in your browser: ${CYAN}http://localhost:5173${NC}"
+        echo -e "  Opening: ${CYAN}http://localhost:5173${NC}"
         echo ""
+
+        # Open browser in background after a short delay to let the server start
+        (
+            sleep 3
+            local url="http://localhost:5173"
+            if grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null; then
+                # WSL: use Windows browser via wslview or cmd.exe
+                if check_command wslview; then
+                    wslview "$url" 2>/dev/null
+                else
+                    cmd.exe /c start "$url" 2>/dev/null
+                fi
+            elif check_command xdg-open; then
+                xdg-open "$url" 2>/dev/null
+            elif check_command open; then
+                open "$url" 2>/dev/null
+            fi
+        ) &
+
         flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5173 2>&1
     fi
 

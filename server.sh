@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# Don't use set -e, we handle errors explicitly
 
 # ============================================
 #         Claude Server Manager
@@ -184,9 +184,11 @@ PYINIT
     if [ "$HAS_FLUTTER" = true ]; then
         print_step "Setting up frontend..."
         cd "$PROJECT_ROOT/frontend"
-        flutter config --enable-web > /dev/null 2>&1
-        flutter pub get > /dev/null 2>&1
-        print_ok "Frontend ready"
+        if flutter config --enable-web > /dev/null 2>&1 && flutter pub get > /dev/null 2>&1; then
+            print_ok "Frontend ready"
+        else
+            print_warn "Frontend setup had issues (may still work)"
+        fi
         cd "$PROJECT_ROOT"
     fi
     

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: claude-server-backend
+    restart: unless-stopped
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - REQUIRE_SANDBOX=true
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/dev_platform.db
+      - USERS_PATH=/app/users
+      - DATA_PATH=/app/data
+      - LOGS_PATH=/app/data/logs
+    volumes:
+      - ./data:/app/data
+      - ./users:/app/users
+      - ./config:/app/config:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: claude-server-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  data:
+  users:

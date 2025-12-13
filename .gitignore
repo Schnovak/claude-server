@@ -1,0 +1,68 @@
+# ============================================
+# Claude Server .gitignore
+# ============================================
+
+# Setup state
+.setup_complete
+
+# Environment & secrets
+config/.env
+*.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Flutter/Dart
+frontend/.dart_tool/
+frontend/.packages
+frontend/build/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/*.iml
+frontend/.idea/
+frontend/.pub-cache/
+frontend/.pub/
+
+# Data directories (contain user data)
+data/
+users/
+*.db
+*.sqlite
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+.docker/
+
+# Node
+node_modules/
+
+# Misc
+*.bak
+*.tmp
+.cache/

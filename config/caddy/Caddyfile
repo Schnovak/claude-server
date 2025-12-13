@@ -1,0 +1,52 @@
+# Caddy configuration for Remote Dev Platform
+# Replace your-domain.com with your actual domain
+
+# For local development (HTTP only)
+:80 {
+    # API proxy
+    handle /api/* {
+        reverse_proxy localhost:8000
+    }
+
+    # WebSocket proxy for job logs
+    handle /api/jobs/*/logs/stream {
+        reverse_proxy localhost:8000
+    }
+
+    # Static files for Flutter web app (when built)
+    handle {
+        root * /srv/dev-platform/web
+        try_files {path} /index.html
+        file_server
+    }
+}
+
+# For production with HTTPS (uncomment and configure)
+# your-domain.com {
+#     # API proxy
+#     handle /api/* {
+#         reverse_proxy localhost:8000
+#     }
+#
+#     # WebSocket proxy
+#     handle /api/jobs/*/logs/stream {
+#         reverse_proxy localhost:8000
+#     }
+#
+#     # Flutter web app
+#     handle {
+#         root * /srv/dev-platform/web
+#         try_files {path} /index.html
+#         file_server
+#     }
+#
+#     # Enable compression
+#     encode gzip
+#
+#     # Security headers
+#     header {
+#         X-Content-Type-Options nosniff
+#         X-Frame-Options DENY
+#         Referrer-Policy strict-origin-when-cross-origin
+#     }
+# }

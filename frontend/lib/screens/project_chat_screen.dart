@@ -150,6 +150,7 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
         // Show API key warning banner if not configured
         return GestureDetector(
           // Re-focus on tap anywhere in the chat area
+          behavior: HitTestBehavior.translucent,
           onTap: () => _focusNode.requestFocus(),
           child: Column(
             children: [

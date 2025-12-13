@@ -441,22 +441,23 @@ start_frontend() {
         echo -e "  Will open: ${CYAN}http://localhost:5173${NC} when ready"
         echo ""
 
-        # Open browser in background once server is actually listening
+        # Open browser in background once Flutter app is actually being served
         (
             local url="http://localhost:5173"
-            local max_attempts=60  # Wait up to 60 seconds
+            local max_attempts=120  # Wait up to 120 seconds (Flutter compile can be slow)
             local attempt=0
 
-            # Wait for port 5173 to be listening
+            # Wait for main.dart.js to be served (indicates Flutter is fully ready)
             while [ $attempt -lt $max_attempts ]; do
-                if curl -s --head --connect-timeout 1 "$url" >/dev/null 2>&1; then
+                # Check if the page contains main.dart (Flutter app marker)
+                if curl -s --connect-timeout 2 "$url" 2>/dev/null | grep -q "main.dart"; then
                     break
                 fi
                 sleep 1
                 attempt=$((attempt + 1))
             done
 
-            # Only open browser if server is ready
+            # Only open browser if Flutter app is ready
             if [ $attempt -lt $max_attempts ]; then
                 if grep -qiE "(microsoft|wsl)" /proc/version 2>/dev/null; then
                     # WSL: use Windows browser via wslview or cmd.exe

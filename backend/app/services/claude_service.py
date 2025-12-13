@@ -152,6 +152,10 @@ class ClaudeService:
         # Add message via stdin with --print flag for non-interactive output
         cmd.extend(["--print", "-p", message])
 
+        # Bypass permission prompts - safe because we sandbox with firejail
+        cmd.append("--permission-mode")
+        cmd.append("bypassPermissions")
+
         # If continuing conversation, add continue flag
         if continue_conversation:
             cmd.append("--continue")
@@ -230,6 +234,10 @@ class ClaudeService:
         # Build command
         cmd = [settings.claude_binary]
         cmd.extend(["--print", "-p", message])
+
+        # Bypass permission prompts - safe because we sandbox with firejail
+        cmd.append("--permission-mode")
+        cmd.append("bypassPermissions")
 
         if continue_conversation:
             cmd.append("--continue")

@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
 from pathlib import Path
 import aiofiles
+import asyncio
 import os
 import shutil
+import json
+import logging
 
 from ..database import get_db
 from ..models import User, Project, Artifact
@@ -14,10 +17,12 @@ from ..models.artifact import ArtifactKind as ArtifactKindModel
 from ..schemas import ArtifactResponse
 from ..services.auth import get_current_user
 from ..services.workspace import WorkspaceService
+from ..services.file_watcher import file_watcher
 from ..config import get_settings
 
 router = APIRouter(tags=["files"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 # ============== Project Files ==============
@@ -314,3 +319,93 @@ async def delete_artifact(
 
     await db.delete(artifact)
     await db.commit()
+
+
+# ============== File Watcher WebSocket ==============
+
+@router.websocket("/projects/{project_id}/files/watch")
+async def watch_files(
+    websocket: WebSocket,
+    project_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """WebSocket endpoint for watching file changes in a project."""
+    await websocket.accept()
+
+    # Get token from query params for auth
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.send_json({"error": "Authentication required"})
+        await websocket.close()
+        return
+
+    # Validate token and get user
+    from ..services.auth import AuthService
+    payload = AuthService.decode_token(token)
+    if not payload:
+        await websocket.send_json({"error": "Invalid token"})
+        await websocket.close()
+        return
+    user_id = payload.get("sub")
+
+    # Verify project ownership
+    result = await db.execute(
+        select(Project).where(
+            Project.id == project_id,
+            Project.owner_id == user_id
+        )
+    )
+    project = result.scalar_one_or_none()
+
+    if not project:
+        await websocket.send_json({"error": "Project not found"})
+        await websocket.close()
+        return
+
+    project_path = Path(project.root_path)
+
+    # Message queue for this connection
+    message_queue: asyncio.Queue = asyncio.Queue()
+
+    async def on_file_change(event_type: str, path: str):
+        """Handle file change event."""
+        try:
+            # Make path relative to project
+            rel_path = Path(path).relative_to(project_path)
+            await message_queue.put({
+                "type": "file_change",
+                "event": event_type,
+                "path": str(rel_path),
+            })
+        except ValueError:
+            # Path not relative to project, ignore
+            pass
+
+    # Start watching project
+    await file_watcher.watch_project(project_id, project_path)
+    await file_watcher.add_listener(project_id, on_file_change)
+
+    try:
+        # Send initial confirmation
+        await websocket.send_json({"type": "connected", "project_id": project_id})
+
+        # Process messages
+        while True:
+            try:
+                # Wait for file change events with timeout to check for disconnect
+                msg = await asyncio.wait_for(message_queue.get(), timeout=30.0)
+                await websocket.send_json(msg)
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                await websocket.send_json({"type": "heartbeat"})
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for project {project_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for project {project_id}: {e}")
+    finally:
+        await file_watcher.remove_listener(project_id, on_file_change)
+        try:
+            await websocket.close()
+        except Exception:
+            pass

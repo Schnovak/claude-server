@@ -1,7 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/project.dart';
+import '../providers/auth_provider.dart';
 import '../services/api_client.dart';
 
 class GitScreen extends StatefulWidget {
@@ -20,12 +27,68 @@ class _GitScreenState extends State<GitScreen> {
   bool _isInitialized = true;
   String? _error;
   bool _hasGitHubToken = false;
+  WebSocketChannel? _channel;
+  StreamSubscription? _subscription;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _loadGitInfo();
     _checkGitHubToken();
+    _connectWebSocket();
+  }
+
+  void _connectWebSocket() {
+    final token = context.read<AuthProvider>().token;
+    if (token == null) return;
+
+    // Build WebSocket URL
+    final wsUrl = kDebugMode
+        ? 'ws://localhost:8000/api/projects/${widget.project.id}/files/watch?token=$token'
+        : 'ws://${Uri.base.host}:${Uri.base.port}/api/projects/${widget.project.id}/files/watch?token=$token';
+
+    try {
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      _subscription = _channel!.stream.listen(
+        _onWebSocketMessage,
+        onError: (error) {
+          debugPrint('WebSocket error: $error');
+        },
+        onDone: () {
+          debugPrint('WebSocket closed');
+        },
+      );
+    } catch (e) {
+      debugPrint('Failed to connect WebSocket: $e');
+    }
+  }
+
+  void _onWebSocketMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message as String);
+      final type = data['type'];
+
+      if (type == 'file_change') {
+        // Debounce refresh to avoid too many refreshes
+        _debounceTimer?.cancel();
+        _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            _loadGitInfo();
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error parsing WebSocket message: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _subscription?.cancel();
+    _channel?.sink.close();
+    super.dispose();
   }
 
   Future<void> _checkGitHubToken() async {

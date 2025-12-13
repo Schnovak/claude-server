@@ -20,8 +20,6 @@ cd claude-server
 bash server.sh
 ```
 
-> **Note:** Use `bash server.sh` instead of `./server.sh` to avoid line ending issues on Windows/WSL.
-
 That's it. The script handles everything:
 - First run: Guides through setup
 - Every run: Shows menu to start services
@@ -47,10 +45,10 @@ That's it. The script handles everything:
 ┌─────────────────────▼───────────────────────────────────┐
 │                      Backend                            │
 │                  (FastAPI + Python)                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │ Auth        │  │ Projects    │  │ Claude      │     │
-│  │ Service     │  │ Service     │  │ Service     │     │
-│  └─────────────┘  └─────────────┘  └──────┬──────┘     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │
+│  │ Auth        │  │ Projects    │  │ Claude      │      │
+│  │ Service     │  │ Service     │  │ Service     │      │
+│  └─────────────┘  └─────────────┘  └──────┬──────┘      │
 └───────────────────────────────────────────┼─────────────┘
                                             │ Sandboxed
 ┌───────────────────────────────────────────▼─────────────┐

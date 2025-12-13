@@ -408,20 +408,39 @@ start_frontend() {
     echo -e "${CYAN}════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${GREEN}Backend:${NC}  http://localhost:8000"
-    echo -e "  ${GREEN}Frontend:${NC} Will open in Chrome"
-    echo ""
-    echo -e "  ${YELLOW}Press 'q' then Enter in Flutter console to quit${NC}"
-    echo ""
-    echo -e "${CYAN}────────────────────────────────────────${NC}"
     echo ""
 
-    cd "$PROJECT_ROOT/frontend"
-    flutter run -d chrome 2>&1
+    cd "$PROJECT_ROOT/frontend" || return
+
+    # Ensure web is enabled (noop if already)
+    flutter config --enable-web > /dev/null 2>&1 || true
+
+    local devices
+    devices="$(flutter devices 2>/dev/null || true)"
+
+    if echo "$devices" | grep -qE '• chrome •'; then
+        echo -e "  ${GREEN}Frontend:${NC} Launching Chrome"
+        echo ""
+        flutter run -d chrome 2>&1
+
+    elif echo "$devices" | grep -qE '• chromium •'; then
+        echo -e "  ${GREEN}Frontend:${NC} Launching Chromium"
+        echo ""
+        flutter run -d chromium 2>&1
+
+    else
+        # Works everywhere, including “real Linux” and WSL, and still uses your browser
+        echo -e "  ${GREEN}Frontend:${NC} Starting web server"
+        echo -e "  Open in your browser: ${CYAN}http://localhost:5173${NC}"
+        echo ""
+        flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5173 2>&1
+    fi
 
     echo ""
     print_ok "Frontend stopped"
     wait_for_key
 }
+
 
 deploy_docker() {
     echo ""

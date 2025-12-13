@@ -401,13 +401,26 @@ start_frontend() {
         fi
     fi
 
+    clear
     echo ""
-    print_step "Starting Flutter frontend..."
-    echo -e "  ${YELLOW}This will open Chrome. Press q in terminal to stop.${NC}"
+    echo -e "${CYAN}════════════════════════════════════════${NC}"
+    echo -e "${CYAN}         Flutter Frontend${NC}"
+    echo -e "${CYAN}════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${GREEN}Backend:${NC}  http://localhost:8000"
+    echo -e "  ${GREEN}Frontend:${NC} Will open in Chrome"
+    echo ""
+    echo -e "  ${YELLOW}Press 'q' then Enter in Flutter console to quit${NC}"
+    echo ""
+    echo -e "${CYAN}────────────────────────────────────────${NC}"
     echo ""
 
     cd "$PROJECT_ROOT/frontend"
-    flutter run -d chrome
+    flutter run -d chrome 2>&1
+
+    echo ""
+    print_ok "Frontend stopped"
+    wait_for_key
 }
 
 deploy_docker() {

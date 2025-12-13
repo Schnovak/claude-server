@@ -17,8 +17,10 @@ A self-hosted platform for running Claude Code with complete user isolation and 
 ```bash
 git clone https://github.com/Schnovak/claude-server.git
 cd claude-server
-./server.sh
+bash server.sh
 ```
+
+> **Note:** Use `bash server.sh` instead of `./server.sh` to avoid line ending issues on Windows/WSL.
 
 That's it. The script handles everything:
 - First run: Guides through setup

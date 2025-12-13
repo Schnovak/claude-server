@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/project.dart';
 import '../models/claude_settings.dart';
 import '../providers/claude_provider.dart';
+import '../services/api_client.dart';
 import 'settings_screen.dart';
 
 class ProjectChatScreen extends StatefulWidget {
@@ -193,6 +194,7 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
                             return _StreamingBubble(
                               userMessage: provider.pendingUserMessage,
                               response: provider.streamingResponse,
+                              activity: provider.currentActivity,
                             );
                           }
                           final message = provider.chatHistory[index];
@@ -396,11 +398,36 @@ class _ChatBubble extends StatelessWidget {
 class _StreamingBubble extends StatelessWidget {
   final String userMessage;
   final String response;
+  final ClaudeActivity? activity;
 
   const _StreamingBubble({
     required this.userMessage,
     required this.response,
+    this.activity,
   });
+
+  IconData _getActivityIcon() {
+    switch (activity?.tool) {
+      case 'Read':
+        return Icons.description_outlined;
+      case 'Write':
+        return Icons.edit_note;
+      case 'Edit':
+        return Icons.edit_outlined;
+      case 'Bash':
+        return Icons.terminal;
+      case 'Glob':
+      case 'Grep':
+        return Icons.search;
+      case 'WebFetch':
+      case 'WebSearch':
+        return Icons.language;
+      case 'TodoWrite':
+        return Icons.checklist;
+      default:
+        return Icons.build_outlined;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -431,6 +458,48 @@ class _StreamingBubble extends StatelessWidget {
               ),
             ),
           if (userMessage.isNotEmpty) const SizedBox(height: 8),
+          // Activity indicator (what Claude is currently doing)
+          if (activity != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        _getActivityIcon(),
+                        size: 16,
+                        color: Theme.of(context).colorScheme.onSecondaryContainer,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        activity!.displayName,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSecondaryContainer,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           // Claude streaming response
           Align(
             alignment: Alignment.centerLeft,
@@ -461,24 +530,33 @@ class _StreamingBubble extends StatelessWidget {
                               fontWeight: FontWeight.w600,
                             ),
                       ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Theme.of(context).colorScheme.primary,
+                      if (activity == null) ...[
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 8),
-                  if (response.isEmpty)
+                  if (response.isEmpty && activity == null)
                     Text(
                       'Thinking...',
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.outline,
                         fontStyle: FontStyle.italic,
+                      ),
+                    )
+                  else if (response.isEmpty && activity != null)
+                    Text(
+                      '...',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.outline,
                       ),
                     )
                   else

@@ -8,6 +8,55 @@ import '../models/project.dart';
 import '../models/job.dart';
 import '../models/claude_settings.dart';
 
+/// Represents Claude's current activity (tool use, etc.)
+class ClaudeActivity {
+  final String type; // tool_start, tool_call, tool_input, tool_end
+  final String? tool;
+  final Map<String, dynamic>? input;
+  final String? partial;
+
+  ClaudeActivity({
+    required this.type,
+    this.tool,
+    this.input,
+    this.partial,
+  });
+
+  factory ClaudeActivity.fromJson(Map<String, dynamic> json) {
+    return ClaudeActivity(
+      type: json['type'] ?? '',
+      tool: json['tool'],
+      input: json['input'],
+      partial: json['partial'],
+    );
+  }
+
+  String get displayName {
+    switch (tool) {
+      case 'Read':
+        return 'Reading file';
+      case 'Write':
+        return 'Writing file';
+      case 'Edit':
+        return 'Editing file';
+      case 'Bash':
+        return 'Running command';
+      case 'Glob':
+        return 'Searching files';
+      case 'Grep':
+        return 'Searching content';
+      case 'TodoWrite':
+        return 'Updating tasks';
+      case 'WebFetch':
+        return 'Fetching web page';
+      case 'WebSearch':
+        return 'Searching web';
+      default:
+        return tool ?? 'Working';
+    }
+  }
+}
+
 /// Represents a streaming chunk from Claude
 class ClaudeStreamChunk {
   final String? text;
@@ -15,6 +64,7 @@ class ClaudeStreamChunk {
   final List<String> filesModified;
   final List<String> suggestedCommands;
   final String? error;
+  final ClaudeActivity? activity;
 
   ClaudeStreamChunk({
     this.text,
@@ -22,6 +72,7 @@ class ClaudeStreamChunk {
     this.filesModified = const [],
     this.suggestedCommands = const [],
     this.error,
+    this.activity,
   });
 
   factory ClaudeStreamChunk.fromJson(Map<String, dynamic> json) {
@@ -35,6 +86,9 @@ class ClaudeStreamChunk {
           ? List<String>.from(json['suggested_commands'])
           : [],
       error: json['error'],
+      activity: json['activity'] != null
+          ? ClaudeActivity.fromJson(json['activity'])
+          : null,
     );
   }
 }

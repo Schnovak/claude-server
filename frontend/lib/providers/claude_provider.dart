@@ -19,6 +19,7 @@ class ClaudeProvider extends ChangeNotifier {
   // Streaming state
   String _streamingResponse = '';
   String _pendingUserMessage = '';
+  ClaudeActivity? _currentActivity;
   StreamSubscription<ClaudeStreamChunk>? _streamSubscription;
 
   ClaudeSettings? get settings => _settings;
@@ -32,6 +33,7 @@ class ClaudeProvider extends ChangeNotifier {
   String? get error => _error;
   String get streamingResponse => _streamingResponse;
   String get pendingUserMessage => _pendingUserMessage;
+  ClaudeActivity? get currentActivity => _currentActivity;
 
   void updateAuth(AuthProvider auth) {
     if (auth.isAuthenticated) {
@@ -140,6 +142,7 @@ class ClaudeProvider extends ChangeNotifier {
     _isSending = true;
     _streamingResponse = '';
     _pendingUserMessage = message;
+    _currentActivity = null;
     _error = null;
     notifyListeners();
 
@@ -159,8 +162,20 @@ class ClaudeProvider extends ChangeNotifier {
         (chunk) {
           if (chunk.error != null) {
             _error = chunk.error;
+            _currentActivity = null;
             notifyListeners();
             return;
+          }
+
+          // Handle activity updates
+          if (chunk.activity != null) {
+            final activity = chunk.activity!;
+            if (activity.type == 'tool_start' || activity.type == 'tool_call') {
+              _currentActivity = activity;
+            } else if (activity.type == 'tool_end') {
+              _currentActivity = null;
+            }
+            notifyListeners();
           }
 
           if (chunk.text != null) {
@@ -175,6 +190,7 @@ class ClaudeProvider extends ChangeNotifier {
         },
         onError: (e) {
           _error = e.toString();
+          _currentActivity = null;
           notifyListeners();
           if (!completer.isCompleted) completer.completeError(e);
         },
@@ -189,6 +205,7 @@ class ClaudeProvider extends ChangeNotifier {
           _chatHistory.add(claudeMessage);
           _streamingResponse = '';
           _pendingUserMessage = '';
+          _currentActivity = null;
           _isSending = false;
           notifyListeners();
           if (!completer.isCompleted) completer.complete();
@@ -202,6 +219,7 @@ class ClaudeProvider extends ChangeNotifier {
       _isSending = false;
       _streamingResponse = '';
       _pendingUserMessage = '';
+      _currentActivity = null;
       notifyListeners();
       rethrow;
     }

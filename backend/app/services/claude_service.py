@@ -301,13 +301,62 @@ class ClaudeService:
                                 inner_event = event.get("event", {})
                                 inner_type = inner_event.get("type", "")
 
-                                if inner_type == "content_block_delta":
+                                if inner_type == "content_block_start":
+                                    # Tool use starting - show what Claude is doing
+                                    content_block = inner_event.get("content_block", {})
+                                    if content_block.get("type") == "tool_use":
+                                        tool_name = content_block.get("name", "unknown")
+                                        yield json.dumps({
+                                            "activity": {
+                                                "type": "tool_start",
+                                                "tool": tool_name,
+                                            }
+                                        })
+
+                                elif inner_type == "content_block_delta":
                                     delta = inner_event.get("delta", {})
-                                    if delta.get("type") == "text_delta":
+                                    delta_type = delta.get("type", "")
+
+                                    if delta_type == "text_delta":
                                         text = delta.get("text", "")
                                         if text:
                                             full_response += text
                                             yield json.dumps({"text": text})
+
+                                    elif delta_type == "input_json_delta":
+                                        # Tool input being built - can show partial tool args
+                                        partial_json = delta.get("partial_json", "")
+                                        if partial_json:
+                                            yield json.dumps({
+                                                "activity": {
+                                                    "type": "tool_input",
+                                                    "partial": partial_json,
+                                                }
+                                            })
+
+                                elif inner_type == "content_block_stop":
+                                    # Content block finished
+                                    yield json.dumps({
+                                        "activity": {
+                                            "type": "tool_end",
+                                        }
+                                    })
+
+                            elif event_type == "assistant":
+                                # Assistant message - may contain tool use info
+                                message = event.get("message", {})
+                                content = message.get("content", [])
+                                for block in content:
+                                    if block.get("type") == "tool_use":
+                                        tool_name = block.get("name", "")
+                                        tool_input = block.get("input", {})
+                                        yield json.dumps({
+                                            "activity": {
+                                                "type": "tool_call",
+                                                "tool": tool_name,
+                                                "input": tool_input,
+                                            }
+                                        })
 
                             elif event_type == "result":
                                 # Final result - capture any remaining text

@@ -40,6 +40,8 @@ class GitStatusResponse(BaseModel):
     files: List[GitFileStatus]
     ahead: int = 0
     behind: int = 0
+    remote_url: Optional[str] = None
+    remote_web_url: Optional[str] = None  # Browser-friendly URL
 
 
 async def run_git_command(cwd: Path, *args) -> tuple[int, str, str]:
@@ -52,6 +54,34 @@ async def run_git_command(cwd: Path, *args) -> tuple[int, str, str]:
     )
     stdout, stderr = await process.communicate()
     return process.returncode, stdout.decode(), stderr.decode()
+
+
+def git_url_to_web_url(git_url: str) -> Optional[str]:
+    """Convert a git remote URL to a browser-friendly web URL."""
+    import re
+
+    if not git_url:
+        return None
+
+    git_url = git_url.strip()
+
+    # SSH format: git@github.com:user/repo.git
+    ssh_match = re.match(r'git@([^:]+):(.+?)(?:\.git)?$', git_url)
+    if ssh_match:
+        host, path = ssh_match.groups()
+        return f"https://{host}/{path}"
+
+    # HTTPS format: https://github.com/user/repo.git
+    https_match = re.match(r'https?://([^/]+)/(.+?)(?:\.git)?$', git_url)
+    if https_match:
+        host, path = https_match.groups()
+        return f"https://{host}/{path}"
+
+    # Already a web URL or unknown format
+    if git_url.startswith('http'):
+        return git_url.rstrip('.git')
+
+    return None
 
 
 @router.post("/projects/{project_id}/git/init")
@@ -155,11 +185,23 @@ async def git_status(
             ahead = int(parts[0])
             behind = int(parts[1])
 
+    # Get remote URL
+    remote_url = None
+    remote_web_url = None
+    code, remote_out, _ = await run_git_command(
+        project_path, "remote", "get-url", "origin"
+    )
+    if code == 0 and remote_out.strip():
+        remote_url = remote_out.strip()
+        remote_web_url = git_url_to_web_url(remote_url)
+
     return GitStatusResponse(
         branch=branch,
         files=files,
         ahead=ahead,
-        behind=behind
+        behind=behind,
+        remote_url=remote_url,
+        remote_web_url=remote_web_url,
     )
 
 

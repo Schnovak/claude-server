@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/project.dart';
 import '../services/api_client.dart';
@@ -327,6 +328,7 @@ class _GitStatusCard extends StatelessWidget {
     final files = status['files'] as List<dynamic>? ?? [];
     final ahead = status['ahead'] as int? ?? 0;
     final behind = status['behind'] as int? ?? 0;
+    final remoteWebUrl = status['remote_web_url'] as String?;
 
     // Categorize files by status
     int staged = 0;
@@ -373,6 +375,43 @@ class _GitStatusCard extends StatelessWidget {
                   ),
               ],
             ),
+            if (remoteWebUrl != null) ...[
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  final uri = Uri.parse(remoteWebUrl);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.link,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        remoteWebUrl,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.open_in_new,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             Row(
               children: [

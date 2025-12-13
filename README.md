@@ -15,7 +15,7 @@ A self-hosted platform for running Claude Code with complete user isolation and 
 ## Quick Start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-server.git
+git clone https://github.com/Schnovak/claude-server.git
 cd claude-server
 ./server.sh
 ```

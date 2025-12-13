@@ -19,11 +19,24 @@ class _GitScreenState extends State<GitScreen> {
   bool _isLoading = true;
   bool _isInitialized = true;
   String? _error;
+  bool _hasGitHubToken = false;
 
   @override
   void initState() {
     super.initState();
     _loadGitInfo();
+    _checkGitHubToken();
+  }
+
+  Future<void> _checkGitHubToken() async {
+    try {
+      final hasToken = await apiClient.getGitHubTokenStatus();
+      if (mounted) {
+        setState(() => _hasGitHubToken = hasToken);
+      }
+    } catch (e) {
+      // Ignore errors
+    }
   }
 
   Future<void> _loadGitInfo() async {
@@ -129,7 +142,10 @@ class _GitScreenState extends State<GitScreen> {
             status: _status!,
             onCommit: () => _showCommitDialog(),
             onSetRemote: () => _showRemoteDialog(),
-            onCreateGitHub: () => _showGitHubCreateDialog(),
+            onCreateGitHub: _hasGitHubToken
+                ? () => _showGitHubCreateDialog()
+                : () => _showGitHubTokenSetupDialog(),
+            hasGitHubToken: _hasGitHubToken,
           ),
           const SizedBox(height: 24),
           Text(
@@ -311,6 +327,158 @@ class _GitScreenState extends State<GitScreen> {
     }
   }
 
+  void _showGitHubTokenSetupDialog() {
+    final tokenController = TextEditingController();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.key, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('GitHub Token Required'),
+            ],
+          ),
+          content: SizedBox(
+            width: 450,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'To create repositories on GitHub, you need to add your Personal Access Token.',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'How to get a token:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text('1. Go to GitHub → Settings → Developer settings'),
+                const Text('2. Click "Personal access tokens" → "Tokens (classic)"'),
+                const Text('3. Generate new token with "repo" permission'),
+                const Text('4. Copy and paste the token below'),
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () async {
+                    final uri = Uri.parse('https://github.com/settings/tokens/new');
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                  child: Row(
+                    children: [
+                      Icon(Icons.open_in_new, size: 16, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Open GitHub Token Page',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: tokenController,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'GitHub Personal Access Token',
+                    hintText: 'ghp_xxxxxxxxxxxxxxxxxxxx',
+                  ),
+                  obscureText: true,
+                  enabled: !isSaving,
+                ),
+                if (isSaving) ...[
+                  const SizedBox(height: 12),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Saving...'),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final token = tokenController.text.trim();
+                      if (token.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Please enter a token')),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isSaving = true);
+
+                      try {
+                        await apiClient.setGitHubToken(token);
+                        if (mounted) {
+                          Navigator.pop(context);
+                          setState(() => _hasGitHubToken = true);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('GitHub token saved! You can now create repositories.'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                          // Open the create dialog now that token is set
+                          _showGitHubCreateDialog();
+                        }
+                      } catch (e) {
+                        setDialogState(() => isSaving = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e')),
+                          );
+                        }
+                      }
+                    },
+              child: const Text('Save & Continue'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showGitHubCreateDialog() {
     final nameController = TextEditingController(text: widget.project.name);
     final descController = TextEditingController();
@@ -456,12 +624,14 @@ class _GitStatusCard extends StatelessWidget {
   final VoidCallback onCommit;
   final VoidCallback onSetRemote;
   final VoidCallback onCreateGitHub;
+  final bool hasGitHubToken;
 
   const _GitStatusCard({
     required this.status,
     required this.onCommit,
     required this.onSetRemote,
     required this.onCreateGitHub,
+    required this.hasGitHubToken,
   });
 
   @override
@@ -589,10 +759,12 @@ class _GitStatusCard extends StatelessWidget {
                 if (remoteWebUrl == null)
                   FilledButton.icon(
                     onPressed: onCreateGitHub,
-                    icon: const Icon(Icons.add_circle_outline),
-                    label: const Text('Create on GitHub'),
+                    icon: Icon(hasGitHubToken ? Icons.add_circle_outline : Icons.key),
+                    label: Text(hasGitHubToken ? 'Create on GitHub' : 'Setup GitHub'),
                     style: FilledButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.secondary,
+                      backgroundColor: hasGitHubToken
+                          ? Theme.of(context).colorScheme.secondary
+                          : Colors.orange,
                     ),
                   )
                 else

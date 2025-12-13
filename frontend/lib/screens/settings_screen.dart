@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/claude_provider.dart';
@@ -380,32 +381,73 @@ class _ClaudeSettingsTabState extends State<_ClaudeSettingsTab> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          color: Colors.orange.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
                         ),
-                        child: Row(
+                        child: const Row(
                           children: [
-                            Icon(
-                              Icons.info_outline,
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text('Token needed for GitHub integration'),
+                            Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text('Token needed to create repositories on GitHub'),
                             ),
                           ],
                         ),
                       ),
                     if (!_hasGitHubToken || _showGitHubToken) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'How to get a token:',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('1. Go to GitHub → Settings → Developer settings'),
+                            const Text('2. Click "Personal access tokens" → "Tokens (classic)"'),
+                            const Text('3. Generate new token with "repo" permission'),
+                            const Text('4. Copy and paste the token below'),
+                            const SizedBox(height: 12),
+                            InkWell(
+                              onTap: () async {
+                                final uri = Uri.parse('https://github.com/settings/tokens/new');
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              },
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.open_in_new, size: 16, color: Theme.of(context).colorScheme.primary),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Open GitHub Token Page',
+                                    style: TextStyle(
+                                      color: Theme.of(context).colorScheme.primary,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: _githubTokenController,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           labelText: 'GitHub Personal Access Token',
-                          hintText: 'ghp_...',
-                          helperText: 'Create at GitHub → Settings → Developer settings → Personal access tokens',
-                          helperMaxLines: 2,
+                          hintText: 'ghp_xxxxxxxxxxxxxxxxxxxx',
                         ),
                         obscureText: true,
                       ),

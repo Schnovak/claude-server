@@ -101,6 +101,9 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
 
     _messageController.clear();
 
+    // Keep focus on input immediately after clearing
+    _focusNode.requestFocus();
+
     try {
       await provider.sendMessage(
         message,
@@ -117,8 +120,12 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
       }
     }
 
-    // Re-focus the input field after sending
-    _focusNode.requestFocus();
+    // Re-focus after completion in case it was lost during streaming
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _focusNode.requestFocus();
+      });
+    }
   }
 
   void _scrollToBottom() {
@@ -515,7 +522,7 @@ class _ChatInputBar extends StatelessWidget {
                 focusNode: focusNode,
                 autofocus: true,
                 decoration: InputDecoration(
-                  hintText: 'Ask Claude anything...',
+                  hintText: isSending ? 'Claude is responding...' : 'Ask Claude anything...',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                   ),
@@ -527,8 +534,7 @@ class _ChatInputBar extends StatelessWidget {
                 maxLines: 4,
                 minLines: 1,
                 textInputAction: TextInputAction.send,
-                onSubmitted: (_) => onSend(),
-                enabled: !isSending,
+                onSubmitted: isSending ? null : (_) => onSend(),
               ),
             ),
             const SizedBox(width: 8),

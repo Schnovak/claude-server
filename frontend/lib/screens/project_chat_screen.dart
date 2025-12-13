@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/project.dart';
 import '../models/claude_settings.dart';
@@ -344,10 +346,27 @@ class _ChatBubble extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  SelectableText(
-                    message.response,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
+                  MarkdownBody(
+                    data: message.response,
+                    selectable: true,
+                    onTapLink: (text, href, title) async {
+                      if (href != null) {
+                        final uri = Uri.parse(href);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      }
+                    },
+                    styleSheet: MarkdownStyleSheet(
+                      p: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                      code: TextStyle(
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+                        fontFamily: 'monospace',
+                      ),
+                      codeblockDecoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                   if (message.filesModified.isNotEmpty) ...[
@@ -463,10 +482,27 @@ class _StreamingBubble extends StatelessWidget {
                       ),
                     )
                   else
-                    SelectableText(
-                      response,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface,
+                    MarkdownBody(
+                      data: response,
+                      selectable: true,
+                      onTapLink: (text, href, title) async {
+                        if (href != null) {
+                          final uri = Uri.parse(href);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        }
+                      },
+                      styleSheet: MarkdownStyleSheet(
+                        p: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                        code: TextStyle(
+                          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+                          fontFamily: 'monospace',
+                        ),
+                        codeblockDecoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                 ],

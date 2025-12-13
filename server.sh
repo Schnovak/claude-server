@@ -321,9 +321,14 @@ start_backend() {
     # Ensure log directory exists
     mkdir -p "$(dirname "$BACKEND_LOG_FILE")"
 
-    # Start in background
+    # Install/update requirements
     cd "$PROJECT_ROOT/backend"
     source venv/bin/activate
+    print_step "Checking dependencies..."
+    pip install -r requirements.txt -q 2>/dev/null
+    print_ok "Dependencies up to date"
+
+    # Start in background
     nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$BACKEND_LOG_FILE" 2>&1 &
     echo $! > "$BACKEND_PID_FILE"
     deactivate

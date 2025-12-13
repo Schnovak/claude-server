@@ -624,10 +624,19 @@ class _ChatInputBar extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: onClear,
-              tooltip: 'Clear chat',
+            SizedBox(
+              height: 48,
+              width: 48,
+              child: IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: onClear,
+                tooltip: 'Clear chat',
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -642,7 +651,7 @@ class _ChatInputBar extends StatelessWidget {
                   ),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
-                    vertical: 12,
+                    vertical: 14,
                   ),
                 ),
                 maxLines: 4,
@@ -652,19 +661,23 @@ class _ChatInputBar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            FilledButton(
-              onPressed: isSending ? null : onSend,
-              style: FilledButton.styleFrom(
-                shape: const CircleBorder(),
-                padding: const EdgeInsets.all(12),
+            SizedBox(
+              height: 48,
+              width: 48,
+              child: FilledButton(
+                onPressed: isSending ? null : onSend,
+                style: FilledButton.styleFrom(
+                  shape: const CircleBorder(),
+                  padding: EdgeInsets.zero,
+                ),
+                child: isSending
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send),
               ),
-              child: isSending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
             ),
           ],
         ),

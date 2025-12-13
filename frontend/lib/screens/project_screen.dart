@@ -6,7 +6,6 @@ import '../providers/projects_provider.dart';
 import '../providers/claude_provider.dart';
 import 'project_chat_screen.dart';
 import 'files_screen.dart';
-import 'project_jobs_screen.dart';
 import 'git_screen.dart';
 import 'settings_screen.dart';
 
@@ -26,10 +25,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Load jobs for this project
       final provider = context.read<ProjectsProvider>();
       provider.selectProject(widget.project);
-      provider.loadJobs(widget.project.id);
 
       // Load Claude settings
       context.read<ClaudeProvider>().loadSettings();
@@ -69,7 +66,6 @@ class _ProjectScreenState extends State<ProjectScreen> {
         children: [
           ProjectChatScreen(project: widget.project),
           FilesScreen(project: widget.project),
-          ProjectJobsScreen(project: widget.project),
           GitScreen(project: widget.project),
         ],
       ),
@@ -88,11 +84,6 @@ class _ProjectScreenState extends State<ProjectScreen> {
             icon: Icon(Icons.folder_outlined),
             selectedIcon: Icon(Icons.folder),
             label: 'Files',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.play_circle_outline),
-            selectedIcon: Icon(Icons.play_circle),
-            label: 'Jobs',
           ),
           NavigationDestination(
             icon: Icon(Icons.code_outlined),

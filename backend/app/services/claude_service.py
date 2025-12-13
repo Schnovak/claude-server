@@ -224,6 +224,7 @@ class ClaudeService:
         Send a message to Claude Code and stream the response.
 
         Yields JSON strings with either 'text' chunks or final 'done' message.
+        Uses --output-format stream-json for real-time streaming.
         """
         # Determine working directory
         if project_id:
@@ -231,13 +232,14 @@ class ClaudeService:
         else:
             cwd = self.workspace
 
-        # Build command
+        # Build command with streaming output format
         cmd = [settings.claude_binary]
         cmd.extend(["--print", "-p", message])
+        cmd.extend(["--output-format", "stream-json"])
+        cmd.append("--include-partial-messages")
 
         # Bypass permission prompts - safe because we sandbox with firejail
-        cmd.append("--permission-mode")
-        cmd.append("bypassPermissions")
+        cmd.extend(["--permission-mode", "bypassPermissions"])
 
         if continue_conversation:
             cmd.append("--continue")
@@ -268,23 +270,67 @@ class ClaudeService:
             )
 
             full_response = ""
+            buffer = ""
 
-            # Read stdout line by line and yield chunks
+            # Read stdout and parse stream-json events
             while True:
                 try:
-                    # Read a chunk (up to 1KB at a time for responsiveness)
                     chunk = await asyncio.wait_for(
-                        process.stdout.read(1024),
+                        process.stdout.read(4096),
                         timeout=300
                     )
                     if not chunk:
                         break
 
-                    text = chunk.decode("utf-8", errors="replace")
-                    full_response += text
+                    buffer += chunk.decode("utf-8", errors="replace")
 
-                    # Yield the text chunk
-                    yield json.dumps({"text": text})
+                    # Process complete JSON lines
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        try:
+                            event = json.loads(line)
+                            event_type = event.get("type", "")
+
+                            # Handle different event types from stream-json
+                            if event_type == "assistant":
+                                # Partial or complete assistant message
+                                msg = event.get("message", {})
+                                content = msg.get("content", [])
+                                for block in content:
+                                    if block.get("type") == "text":
+                                        text = block.get("text", "")
+                                        if text and text not in full_response:
+                                            # Only send new text
+                                            new_text = text[len(full_response):] if text.startswith(full_response) else text
+                                            if new_text:
+                                                full_response = text
+                                                yield json.dumps({"text": new_text})
+
+                            elif event_type == "content_block_delta":
+                                # Incremental text delta
+                                delta = event.get("delta", {})
+                                if delta.get("type") == "text_delta":
+                                    text = delta.get("text", "")
+                                    if text:
+                                        full_response += text
+                                        yield json.dumps({"text": text})
+
+                            elif event_type == "result":
+                                # Final result
+                                result_text = event.get("result", "")
+                                if result_text and result_text != full_response:
+                                    new_text = result_text[len(full_response):] if len(result_text) > len(full_response) else ""
+                                    if new_text:
+                                        yield json.dumps({"text": new_text})
+                                    full_response = result_text
+
+                        except json.JSONDecodeError:
+                            # Not valid JSON, might be partial - skip
+                            continue
 
                 except asyncio.TimeoutError:
                     yield json.dumps({"error": "Response timed out"})

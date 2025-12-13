@@ -447,10 +447,11 @@ start_frontend() {
             local max_attempts=120  # Wait up to 120 seconds (Flutter compile can be slow)
             local attempt=0
 
-            # Wait for main.dart.js to be served (indicates Flutter is fully ready)
+            # Wait for main.dart.js to be served (indicates Flutter is fully compiled and ready)
+            # Check the compiled JS file directly - this only exists when app is truly ready
             while [ $attempt -lt $max_attempts ]; do
-                # Check if the page contains main.dart (Flutter app marker)
-                if curl -s --connect-timeout 2 "$url" 2>/dev/null | grep -q "main.dart"; then
+                # Check if main.dart.js returns 200 (means Flutter finished compiling)
+                if curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "$url/main.dart.js" 2>/dev/null | grep -q "200"; then
                     break
                 fi
                 sleep 1

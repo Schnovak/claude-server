@@ -272,6 +272,7 @@ class ClaudeService:
 
             full_response = ""
             buffer = ""
+            last_block_was_tool = False  # Track if last block was a tool use
 
             # Read stdout and parse stream-json events
             while True:
@@ -302,16 +303,23 @@ class ClaudeService:
                                 inner_type = inner_event.get("type", "")
 
                                 if inner_type == "content_block_start":
-                                    # Tool use starting - show what Claude is doing
                                     content_block = inner_event.get("content_block", {})
                                     if content_block.get("type") == "tool_use":
+                                        # Tool use starting - show what Claude is doing
                                         tool_name = content_block.get("name", "unknown")
+                                        last_block_was_tool = True
                                         yield json.dumps({
                                             "activity": {
                                                 "type": "tool_start",
                                                 "tool": tool_name,
                                             }
                                         })
+                                    elif content_block.get("type") == "text":
+                                        # Text block starting - add newline if coming after tool
+                                        if last_block_was_tool and full_response:
+                                            full_response += "\n\n"
+                                            yield json.dumps({"text": "\n\n"})
+                                        last_block_was_tool = False
 
                                 elif inner_type == "content_block_delta":
                                     delta = inner_event.get("delta", {})

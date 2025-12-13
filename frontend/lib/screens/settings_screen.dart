@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/claude_provider.dart';
 import '../models/claude_settings.dart';
+import '../services/api_client.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -47,11 +48,15 @@ class _ClaudeSettingsTab extends StatefulWidget {
 class _ClaudeSettingsTabState extends State<_ClaudeSettingsTab> {
   final _systemPromptController = TextEditingController();
   final _apiKeyController = TextEditingController();
+  final _githubTokenController = TextEditingController();
   String? _selectedModel;
   bool _isDirty = false;
   bool _isSaving = false;
   bool _isSavingApiKey = false;
+  bool _isSavingGitHubToken = false;
   bool _showApiKey = false;
+  bool _showGitHubToken = false;
+  bool _hasGitHubToken = false;
 
   @override
   void initState() {
@@ -59,6 +64,7 @@ class _ClaudeSettingsTabState extends State<_ClaudeSettingsTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ClaudeProvider>().loadSettings();
       _loadCurrentSettings();
+      _loadGitHubTokenStatus();
     });
   }
 
@@ -74,10 +80,22 @@ class _ClaudeSettingsTabState extends State<_ClaudeSettingsTab> {
     }
   }
 
+  Future<void> _loadGitHubTokenStatus() async {
+    try {
+      final hasToken = await apiClient.getGitHubTokenStatus();
+      if (mounted) {
+        setState(() => _hasGitHubToken = hasToken);
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+
   @override
   void dispose() {
     _systemPromptController.dispose();
     _apiKeyController.dispose();
+    _githubTokenController.dispose();
     super.dispose();
   }
 
@@ -103,6 +121,56 @@ class _ClaudeSettingsTabState extends State<_ClaudeSettingsTab> {
       }
     } finally {
       if (mounted) setState(() => _isSavingApiKey = false);
+    }
+  }
+
+  Future<void> _saveGitHubToken() async {
+    final token = _githubTokenController.text.trim();
+    if (token.isEmpty) return;
+
+    setState(() => _isSavingGitHubToken = true);
+
+    try {
+      await apiClient.setGitHubToken(token);
+      _githubTokenController.clear();
+      setState(() {
+        _hasGitHubToken = true;
+        _showGitHubToken = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('GitHub token saved!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingGitHubToken = false);
+    }
+  }
+
+  Future<void> _removeGitHubToken() async {
+    try {
+      await apiClient.removeGitHubToken();
+      setState(() {
+        _hasGitHubToken = false;
+        _showGitHubToken = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('GitHub token removed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -258,6 +326,108 @@ class _ClaudeSettingsTabState extends State<_ClaudeSettingsTab> {
                                     child: CircularProgressIndicator(strokeWidth: 2),
                                   )
                                 : const Text('Save API Key'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // GitHub Token
+              _SettingsCard(
+                title: 'GitHub Token',
+                subtitle: _hasGitHubToken
+                    ? 'GitHub Personal Access Token is configured'
+                    : 'Required for "Create on GitHub" feature',
+                icon: Icons.code,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_hasGitHubToken)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check_circle,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text('GitHub token configured'),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(() => _showGitHubToken = true),
+                              child: const Text('Update'),
+                            ),
+                            TextButton(
+                              onPressed: _removeGitHubToken,
+                              child: Text(
+                                'Remove',
+                                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text('Token needed for GitHub integration'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (!_hasGitHubToken || _showGitHubToken) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _githubTokenController,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'GitHub Personal Access Token',
+                          hintText: 'ghp_...',
+                          helperText: 'Create at GitHub → Settings → Developer settings → Personal access tokens',
+                          helperMaxLines: 2,
+                        ),
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (_showGitHubToken)
+                            TextButton(
+                              onPressed: () => setState(() => _showGitHubToken = false),
+                              child: const Text('Cancel'),
+                            ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: _isSavingGitHubToken ? null : _saveGitHubToken,
+                            child: _isSavingGitHubToken
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Text('Save Token'),
                           ),
                         ],
                       ),

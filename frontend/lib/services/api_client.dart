@@ -265,6 +265,33 @@ class ApiClient {
     await _handleResponse(response);
   }
 
+  // GitHub Token
+  Future<bool> getGitHubTokenStatus() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/claude/github-token/status'),
+      headers: _headers,
+    );
+    final data = await _handleResponse(response);
+    return data['configured'] ?? false;
+  }
+
+  Future<void> setGitHubToken(String token) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/claude/github-token'),
+      headers: _headers,
+      body: jsonEncode({'github_token': token}),
+    );
+    await _handleResponse(response);
+  }
+
+  Future<void> removeGitHubToken() async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/claude/github-token'),
+      headers: _headers,
+    );
+    await _handleResponse(response);
+  }
+
   Future<ClaudeMessage> sendClaudeMessage(
     String message, {
     String? projectId,

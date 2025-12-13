@@ -22,6 +22,10 @@ class ClaudeSettings(Base):
     use_workspace_multi_project: Mapped[bool] = mapped_column(
         Boolean, default=True
     )
+    # GitHub Personal Access Token for per-user gh CLI auth
+    github_token: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )

@@ -9,6 +9,7 @@ class ClaudeSettingsResponse(BaseModel):
     system_prompt: Optional[str] = None
     extra_instructions: Optional[str] = None
     use_workspace_multi_project: bool = True
+    has_github_token: bool = False  # Don't expose actual token
     updated_at: datetime
 
     class Config:
@@ -21,10 +22,15 @@ class ClaudeSettingsUpdate(BaseModel):
     extra_instructions: Optional[str] = None
     use_workspace_multi_project: Optional[bool] = None
     api_key: Optional[str] = None
+    github_token: Optional[str] = None
 
 
 class ClaudeApiKeyUpdate(BaseModel):
     api_key: str
+
+
+class GitHubTokenUpdate(BaseModel):
+    github_token: str
 
 
 class ClaudeMessageRequest(BaseModel):

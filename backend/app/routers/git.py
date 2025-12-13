@@ -5,9 +5,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 from pathlib import Path
 import asyncio
+import os
 
 from ..database import get_db
-from ..models import User, Project
+from ..models import User, Project, ClaudeSettings
 from ..services.auth import get_current_user
 from ..services.workspace import WorkspaceService
 from ..config import get_settings
@@ -351,6 +352,18 @@ async def create_github_repo(
             detail="GitHub CLI (gh) not installed. Install it from https://cli.github.com/"
         )
 
+    # Get user's GitHub token
+    settings_result = await db.execute(
+        select(ClaudeSettings).where(ClaudeSettings.user_id == current_user.id)
+    )
+    user_settings = settings_result.scalar_one_or_none()
+
+    if not user_settings or not user_settings.github_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub token not configured. Add your GitHub Personal Access Token in Settings."
+        )
+
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
@@ -394,12 +407,14 @@ async def create_github_repo(
     if request.push:
         gh_args.append("--push")
 
-    # Run gh repo create
+    # Run gh repo create with user's GitHub token
+    env = {**os.environ, "GH_TOKEN": user_settings.github_token}
     process = await asyncio.create_subprocess_exec(
         *gh_args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(project_path)
+        cwd=str(project_path),
+        env=env
     )
     stdout, stderr = await process.communicate()
 

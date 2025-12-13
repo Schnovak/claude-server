@@ -10,6 +10,7 @@ from ..schemas.claude import (
     ClaudeSettingsResponse,
     ClaudeSettingsUpdate,
     ClaudeApiKeyUpdate,
+    GitHubTokenUpdate,
     ClaudeMessageRequest,
     ClaudeMessageResponse,
     ClaudePluginInfo,
@@ -49,7 +50,16 @@ async def get_claude_settings(
         await db.commit()
         await db.refresh(claude_settings)
 
-    return ClaudeSettingsResponse.model_validate(claude_settings)
+    # Build response with has_github_token computed field
+    return ClaudeSettingsResponse(
+        user_id=claude_settings.user_id,
+        default_model=claude_settings.default_model,
+        system_prompt=claude_settings.system_prompt,
+        extra_instructions=claude_settings.extra_instructions,
+        use_workspace_multi_project=claude_settings.use_workspace_multi_project,
+        has_github_token=bool(claude_settings.github_token),
+        updated_at=claude_settings.updated_at,
+    )
 
 
 @router.post("/settings", response_model=ClaudeSettingsResponse)
@@ -77,6 +87,8 @@ async def update_claude_settings(
         claude_settings.extra_instructions = update_data.extra_instructions
     if update_data.use_workspace_multi_project is not None:
         claude_settings.use_workspace_multi_project = update_data.use_workspace_multi_project
+    if update_data.github_token is not None:
+        claude_settings.github_token = update_data.github_token
 
     # Sync to disk
     await WorkspaceService.sync_claude_settings_to_disk(
@@ -86,7 +98,15 @@ async def update_claude_settings(
     await db.commit()
     await db.refresh(claude_settings)
 
-    return ClaudeSettingsResponse.model_validate(claude_settings)
+    return ClaudeSettingsResponse(
+        user_id=claude_settings.user_id,
+        default_model=claude_settings.default_model,
+        system_prompt=claude_settings.system_prompt,
+        extra_instructions=claude_settings.extra_instructions,
+        use_workspace_multi_project=claude_settings.use_workspace_multi_project,
+        has_github_token=bool(claude_settings.github_token),
+        updated_at=claude_settings.updated_at,
+    )
 
 
 @router.get("/models", response_model=List[str])
@@ -115,6 +135,62 @@ async def get_api_key_status(
     """Check if API key is configured."""
     has_key = await WorkspaceService.has_api_key(current_user.id)
     return {"configured": has_key}
+
+
+# ============== GitHub Token ==============
+
+@router.post("/github-token")
+async def set_github_token(
+    data: GitHubTokenUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Set the GitHub Personal Access Token for the current user."""
+    result = await db.execute(
+        select(ClaudeSettings).where(ClaudeSettings.user_id == current_user.id)
+    )
+    claude_settings = result.scalar_one_or_none()
+
+    if not claude_settings:
+        claude_settings = ClaudeSettings(user_id=current_user.id)
+        db.add(claude_settings)
+
+    claude_settings.github_token = data.github_token
+    await db.commit()
+
+    return {"message": "GitHub token saved successfully"}
+
+
+@router.delete("/github-token")
+async def remove_github_token(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove the GitHub Personal Access Token for the current user."""
+    result = await db.execute(
+        select(ClaudeSettings).where(ClaudeSettings.user_id == current_user.id)
+    )
+    claude_settings = result.scalar_one_or_none()
+
+    if claude_settings:
+        claude_settings.github_token = None
+        await db.commit()
+
+    return {"message": "GitHub token removed"}
+
+
+@router.get("/github-token/status")
+async def get_github_token_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Check if GitHub token is configured."""
+    result = await db.execute(
+        select(ClaudeSettings).where(ClaudeSettings.user_id == current_user.id)
+    )
+    claude_settings = result.scalar_one_or_none()
+    has_token = bool(claude_settings and claude_settings.github_token)
+    return {"configured": has_token}
 
 
 # ============== Plugins ==============

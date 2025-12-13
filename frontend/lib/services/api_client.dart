@@ -447,6 +447,26 @@ class ApiClient {
     await _handleResponse(response);
   }
 
+  Future<Map<String, dynamic>> gitHubCreate(
+    String projectId, {
+    String? name,
+    String? description,
+    bool private = false,
+    bool push = true,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/projects/$projectId/git/github/create'),
+      headers: _headers,
+      body: jsonEncode({
+        if (name != null) 'name': name,
+        if (description != null) 'description': description,
+        'private': private,
+        'push': push,
+      }),
+    );
+    return await _handleResponse(response);
+  }
+
   Future<List<Map<String, dynamic>>> gitLog(
     String projectId, {
     int limit = 10,

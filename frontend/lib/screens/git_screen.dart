@@ -129,6 +129,7 @@ class _GitScreenState extends State<GitScreen> {
             status: _status!,
             onCommit: () => _showCommitDialog(),
             onSetRemote: () => _showRemoteDialog(),
+            onCreateGitHub: () => _showGitHubCreateDialog(),
           ),
           const SizedBox(height: 24),
           Text(
@@ -309,17 +310,158 @@ class _GitScreenState extends State<GitScreen> {
       }
     }
   }
+
+  void _showGitHubCreateDialog() {
+    final nameController = TextEditingController(text: widget.project.name);
+    final descController = TextEditingController();
+    bool isPrivate = false;
+    bool isCreating = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.cloud_upload),
+              SizedBox(width: 8),
+              Text('Create on GitHub'),
+            ],
+          ),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Repository Name',
+                    border: OutlineInputBorder(),
+                  ),
+                  enabled: !isCreating,
+                  autofocus: true,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  enabled: !isCreating,
+                ),
+                const SizedBox(height: 16),
+                CheckboxListTile(
+                  title: const Text('Private repository'),
+                  subtitle: const Text('Only you can see this repository'),
+                  value: isPrivate,
+                  onChanged: isCreating
+                      ? null
+                      : (value) {
+                          setDialogState(() => isPrivate = value ?? false);
+                        },
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                if (isCreating) ...[
+                  const SizedBox(height: 16),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Creating repository...'),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isCreating ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: isCreating
+                  ? null
+                  : () async {
+                      if (nameController.text.trim().isEmpty) return;
+                      setDialogState(() => isCreating = true);
+
+                      try {
+                        final result = await apiClient.gitHubCreate(
+                          widget.project.id,
+                          name: nameController.text.trim(),
+                          description: descController.text.trim().isEmpty
+                              ? null
+                              : descController.text.trim(),
+                          private: isPrivate,
+                        );
+
+                        if (mounted) {
+                          Navigator.pop(context);
+                          await _loadGitInfo();
+
+                          final webUrl = result['web_url'] as String?;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                webUrl != null
+                                    ? 'Created: $webUrl'
+                                    : 'Repository created!',
+                              ),
+                              action: webUrl != null
+                                  ? SnackBarAction(
+                                      label: 'Open',
+                                      onPressed: () async {
+                                        final uri = Uri.parse(webUrl);
+                                        if (await canLaunchUrl(uri)) {
+                                          await launchUrl(uri,
+                                              mode: LaunchMode
+                                                  .externalApplication);
+                                        }
+                                      },
+                                    )
+                                  : null,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => isCreating = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e')),
+                          );
+                        }
+                      }
+                    },
+              child: const Text('Create & Push'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _GitStatusCard extends StatelessWidget {
   final Map<String, dynamic> status;
   final VoidCallback onCommit;
   final VoidCallback onSetRemote;
+  final VoidCallback onCreateGitHub;
 
   const _GitStatusCard({
     required this.status,
     required this.onCommit,
     required this.onSetRemote,
+    required this.onCreateGitHub,
   });
 
   @override
@@ -435,19 +577,30 @@ class _GitStatusCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 FilledButton.icon(
                   onPressed: files.isNotEmpty ? onCommit : null,
                   icon: const Icon(Icons.check),
                   label: const Text('Commit'),
                 ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: onSetRemote,
-                  icon: const Icon(Icons.cloud_upload),
-                  label: const Text('Set Remote'),
-                ),
+                if (remoteWebUrl == null)
+                  FilledButton.icon(
+                    onPressed: onCreateGitHub,
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: const Text('Create on GitHub'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.secondary,
+                    ),
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: onSetRemote,
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Change Remote'),
+                  ),
               ],
             ),
           ],

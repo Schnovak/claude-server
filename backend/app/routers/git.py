@@ -327,6 +327,114 @@ async def set_git_remote(
     return {"message": f"Remote '{request.name}' set to {request.url}"}
 
 
+class GitHubCreateRequest(BaseModel):
+    name: Optional[str] = None  # Defaults to project name
+    description: Optional[str] = None
+    private: bool = False
+    push: bool = True
+
+
+@router.post("/projects/{project_id}/git/github/create")
+async def create_github_repo(
+    project_id: str,
+    request: GitHubCreateRequest = GitHubCreateRequest(),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a GitHub repository and push the project to it."""
+    import shutil
+
+    # Check if gh CLI is available
+    if not shutil.which("gh"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub CLI (gh) not installed. Install it from https://cli.github.com/"
+        )
+
+    result = await db.execute(
+        select(Project).where(
+            Project.id == project_id,
+            Project.owner_id == current_user.id
+        )
+    )
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+
+    project_path = Path(project.root_path)
+
+    if not (project_path / ".git").exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Not a git repository. Initialize git first."
+        )
+
+    # Use project name if no repo name specified
+    repo_name = request.name or project.name
+
+    # Build gh repo create command
+    gh_args = [
+        "gh", "repo", "create", repo_name,
+        "--source", str(project_path),
+        "--remote", "origin",
+    ]
+
+    if request.private:
+        gh_args.append("--private")
+    else:
+        gh_args.append("--public")
+
+    if request.description:
+        gh_args.extend(["--description", request.description])
+
+    if request.push:
+        gh_args.append("--push")
+
+    # Run gh repo create
+    process = await asyncio.create_subprocess_exec(
+        *gh_args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(project_path)
+    )
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode().strip()
+        if "already exists" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Repository '{repo_name}' already exists on GitHub"
+            )
+        if "not logged in" in error_msg.lower() or "authentication" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub CLI not authenticated. Run 'gh auth login' first."
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create repository: {error_msg}"
+        )
+
+    # Get the new remote URL
+    code, remote_out, _ = await run_git_command(
+        project_path, "remote", "get-url", "origin"
+    )
+    remote_url = remote_out.strip() if code == 0 else None
+    web_url = git_url_to_web_url(remote_url) if remote_url else None
+
+    return {
+        "message": f"Repository '{repo_name}' created on GitHub",
+        "remote_url": remote_url,
+        "web_url": web_url,
+        "pushed": request.push
+    }
+
+
 @router.get("/projects/{project_id}/git/log")
 async def git_log(
     project_id: str,

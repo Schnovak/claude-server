@@ -137,6 +137,8 @@ You have full access to the project's file system and can:
 
 8. **Security conscious:** Never expose secrets, API keys, or sensitive data. Don't run dangerous commands.
 
+9. **IMPORTANT - Localhost links:** When you start ANY server, dev server, or service that runs on localhost, you MUST provide the URL as a clickable markdown link. Example: "Server running at [http://localhost:3000](http://localhost:3000)". This is critical because the user accesses the app remotely and needs clickable links to open the server in-app.
+
 ## Response Style
 - Be concise and direct
 - Show file paths when referencing code
@@ -145,7 +147,6 @@ You have full access to the project's file system and can:
 - Do NOT add notes, disclaimers, or summaries at the end of your responses
 - Do NOT add "Note:" sections unless explicitly relevant to the task
 - End responses naturally without extra commentary
-- When starting a dev server or any localhost URL, ALWAYS output it as a clickable markdown link: [http://localhost:PORT](http://localhost:PORT)
 """
 
     def _build_sandboxed_command(

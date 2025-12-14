@@ -262,7 +262,18 @@ PYINIT
     if [ "$HAS_FLUTTER" = true ]; then
         print_step "Setting up frontend..."
         cd "$PROJECT_ROOT/frontend"
-        if flutter config --enable-web > /dev/null 2>&1 && flutter pub get > /dev/null 2>&1; then
+
+        # Enable web platform
+        flutter config --enable-web > /dev/null 2>&1 || true
+
+        # Create web platform files if they don't exist
+        if [ ! -d "web" ]; then
+            print_ok "Adding web platform support..."
+            flutter create . --platforms web > /dev/null 2>&1 || true
+        fi
+
+        # Get dependencies
+        if flutter pub get > /dev/null 2>&1; then
             print_ok "Frontend ready"
         else
             print_warn "Frontend setup had issues (may still work)"
@@ -419,8 +430,19 @@ start_frontend() {
 
     cd "$PROJECT_ROOT/frontend" || return
 
-    # Ensure web is enabled (noop if already)
+    # Ensure web is enabled and configured
     flutter config --enable-web > /dev/null 2>&1 || true
+
+    # Create web platform if missing
+    if [ ! -d "web" ]; then
+        print_step "Adding web platform support..."
+        flutter create . --platforms web > /dev/null 2>&1 || true
+    fi
+
+    # Filter function to remove noisy warnings
+    filter_flutter_output() {
+        grep -v -E "(file_picker:.*(default plugin|inline implementation|default_package|pluginClass)|Ask the maintainers|not configured to build on the web|flutter create)"
+    }
 
     local devices
     devices="$(flutter devices 2>/dev/null || true)"
@@ -428,12 +450,12 @@ start_frontend() {
     if echo "$devices" | grep -qE '• chrome •'; then
         echo -e "  ${GREEN}Frontend:${NC} Launching Chrome"
         echo ""
-        flutter run -d chrome 2>&1
+        flutter run -d chrome 2>&1 | filter_flutter_output
 
     elif echo "$devices" | grep -qE '• chromium •'; then
         echo -e "  ${GREEN}Frontend:${NC} Launching Chromium"
         echo ""
-        flutter run -d chromium 2>&1
+        flutter run -d chromium 2>&1 | filter_flutter_output
 
     else
         # Works everywhere, including "real Linux" and WSL, and still uses your browser
@@ -442,7 +464,6 @@ start_frontend() {
         echo ""
 
         # Start Flutter and capture output to detect when app is ready
-        # We'll pipe through tee to both show output and scan for ready message
         local ready_marker="/tmp/flutter_ready_$$"
         rm -f "$ready_marker"
 
@@ -474,8 +495,12 @@ start_frontend() {
             rm -f "$ready_marker"
         ) &
 
-        # Run Flutter and watch for the ready message
+        # Run Flutter and watch for the ready message, filtering warnings
         flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5173 2>&1 | while IFS= read -r line; do
+            # Filter out noisy warnings
+            if echo "$line" | grep -qE "(file_picker:.*(default plugin|inline implementation)|Ask the maintainers|not configured to build)"; then
+                continue
+            fi
             echo "$line"
             # Check if Flutter says the app is being served
             if echo "$line" | grep -q "is being served at"; then

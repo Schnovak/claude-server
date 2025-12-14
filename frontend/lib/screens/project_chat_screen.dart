@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/project.dart';
 import '../models/claude_settings.dart';
+import '../models/conversation.dart';
 import '../providers/claude_provider.dart';
 import '../services/api_client.dart';
 import 'settings_screen.dart';
@@ -29,8 +30,13 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkApiKey();
+      _loadConversations();
       _focusNode.requestFocus();
     });
+  }
+
+  void _loadConversations() {
+    context.read<ClaudeProvider>().loadConversations(widget.project.id);
   }
 
   @override
@@ -108,7 +114,8 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
     _focusNode.requestFocus();
 
     try {
-      await provider.sendMessage(
+      // Use the persistent message method
+      await provider.sendMessageWithPersistence(
         message,
         projectId: widget.project.id,
         continueConversation: true,
@@ -129,6 +136,26 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
         _focusNode.requestFocus();
       });
     }
+  }
+
+  void _showConversationDrawer() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => _ConversationDrawer(
+        projectId: widget.project.id,
+        onSelect: (conversationId) {
+          Navigator.pop(ctx);
+          context.read<ClaudeProvider>().selectConversation(conversationId);
+        },
+        onNewChat: () {
+          Navigator.pop(ctx);
+          context.read<ClaudeProvider>().startNewChat();
+        },
+        onDelete: (conversationId) async {
+          await context.read<ClaudeProvider>().deleteConversation(conversationId);
+        },
+      ),
+    );
   }
 
   void _scrollToBottom() {
@@ -195,6 +222,7 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
                               userMessage: provider.pendingUserMessage,
                               response: provider.streamingResponse,
                               activity: provider.currentActivity,
+                              activityHistory: provider.activityHistory,
                             );
                           }
                           final message = provider.chatHistory[index];
@@ -207,7 +235,9 @@ class _ProjectChatScreenState extends State<ProjectChatScreen> with WidgetsBindi
                 focusNode: _focusNode,
                 onSend: _sendMessage,
                 isSending: provider.isSending,
-                onClear: () => provider.clearChatHistory(),
+                onClear: () => provider.startNewChat(),
+                onHistory: _showConversationDrawer,
+                conversationCount: provider.conversations.length,
               ),
             ],
           ),
@@ -399,15 +429,17 @@ class _StreamingBubble extends StatelessWidget {
   final String userMessage;
   final String response;
   final ClaudeActivity? activity;
+  final List<ClaudeActivity> activityHistory;
 
   const _StreamingBubble({
     required this.userMessage,
     required this.response,
     this.activity,
+    this.activityHistory = const [],
   });
 
-  IconData _getActivityIcon() {
-    switch (activity?.tool) {
+  IconData _getActivityIcon(String? tool) {
+    switch (tool) {
       case 'Read':
         return Icons.description_outlined;
       case 'Write':
@@ -458,45 +490,106 @@ class _StreamingBubble extends StatelessWidget {
               ),
             ),
           if (userMessage.isNotEmpty) const SizedBox(height: 8),
-          // Activity indicator (what Claude is currently doing)
-          if (activity != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.secondaryContainer,
-                    borderRadius: BorderRadius.circular(12),
+          // Activity panel showing what Claude is doing
+          if (activityHistory.isNotEmpty || activity != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                ),
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Theme.of(context).colorScheme.onSecondaryContainer,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.build_circle_outlined,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.secondary,
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        _getActivityIcon(),
-                        size: 16,
-                        color: Theme.of(context).colorScheme.onSecondaryContainer,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        activity!.displayName,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.onSecondaryContainer,
-                              fontWeight: FontWeight.w500,
+                        const SizedBox(width: 6),
+                        Text(
+                          'Claude is working...',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.secondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Show activity history
+                    ...activityHistory.map((act) {
+                      final isActive = activity?.tool == act.tool &&
+                          activity?.input?.toString() == act.input?.toString();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          children: [
+                            if (isActive)
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              )
+                            else
+                              Icon(
+                                act.success == false ? Icons.error_outline : Icons.check_circle_outline,
+                                size: 14,
+                                color: act.success == false
+                                    ? Theme.of(context).colorScheme.error
+                                    : Theme.of(context).colorScheme.outline,
+                              ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              _getActivityIcon(act.tool),
+                              size: 14,
+                              color: isActive
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.outline,
                             ),
-                      ),
-                    ],
-                  ),
+                            const SizedBox(width: 6),
+                            Text(
+                              act.displayName,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: isActive
+                                        ? Theme.of(context).colorScheme.onSurface
+                                        : Theme.of(context).colorScheme.outline,
+                                    fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
+                                  ),
+                            ),
+                            if (act.detail.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  act.detail,
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: Theme.of(context).colorScheme.outline,
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                      ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
             ),
@@ -530,7 +623,7 @@ class _StreamingBubble extends StatelessWidget {
                               fontWeight: FontWeight.w600,
                             ),
                       ),
-                      if (activity == null) ...[
+                      if (activity == null && response.isEmpty) ...[
                         const SizedBox(width: 8),
                         SizedBox(
                           width: 12,
@@ -552,7 +645,7 @@ class _StreamingBubble extends StatelessWidget {
                         fontStyle: FontStyle.italic,
                       ),
                     )
-                  else if (response.isEmpty && activity != null)
+                  else if (response.isEmpty)
                     Text(
                       '...',
                       style: TextStyle(
@@ -599,6 +692,8 @@ class _ChatInputBar extends StatelessWidget {
   final VoidCallback onSend;
   final bool isSending;
   final VoidCallback onClear;
+  final VoidCallback onHistory;
+  final int conversationCount;
 
   const _ChatInputBar({
     required this.controller,
@@ -606,6 +701,8 @@ class _ChatInputBar extends StatelessWidget {
     required this.onSend,
     required this.isSending,
     required this.onClear,
+    required this.onHistory,
+    this.conversationCount = 0,
   });
 
   @override
@@ -624,13 +721,33 @@ class _ChatInputBar extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            // History button with badge
+            SizedBox(
+              height: 48,
+              width: 48,
+              child: Badge(
+                isLabelVisible: conversationCount > 0,
+                label: Text('$conversationCount'),
+                child: IconButton(
+                  icon: const Icon(Icons.history),
+                  onPressed: onHistory,
+                  tooltip: 'Chat history',
+                  style: IconButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // New chat button
             SizedBox(
               height: 48,
               width: 48,
               child: IconButton(
-                icon: const Icon(Icons.delete_outline),
+                icon: const Icon(Icons.add_comment_outlined),
                 onPressed: onClear,
-                tooltip: 'Clear chat',
+                tooltip: 'New chat',
                 style: IconButton.styleFrom(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24),
@@ -683,5 +800,167 @@ class _ChatInputBar extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Drawer showing conversation history for the project
+class _ConversationDrawer extends StatelessWidget {
+  final String projectId;
+  final Function(String) onSelect;
+  final VoidCallback onNewChat;
+  final Function(String) onDelete;
+
+  const _ConversationDrawer({
+    required this.projectId,
+    required this.onSelect,
+    required this.onNewChat,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ClaudeProvider>(
+      builder: (context, provider, _) {
+        final conversations = provider.conversations;
+        final currentId = provider.currentConversationId;
+
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.history,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Chat History',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const Spacer(),
+                    FilledButton.icon(
+                      onPressed: onNewChat,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('New Chat'),
+                    ),
+                  ],
+                ),
+              ),
+              // Conversation list
+              Flexible(
+                child: conversations.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.chat_bubble_outline,
+                              size: 48,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No chat history yet',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: conversations.length,
+                        itemBuilder: (context, index) {
+                          final conv = conversations[index];
+                          final isSelected = conv.id == currentId;
+
+                          return ListTile(
+                            selected: isSelected,
+                            leading: Icon(
+                              isSelected
+                                  ? Icons.chat_bubble
+                                  : Icons.chat_bubble_outline,
+                            ),
+                            title: Text(
+                              conv.displayTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${conv.messageCount} messages - ${_formatDate(conv.updatedAt)}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 20),
+                              onPressed: () => _confirmDelete(context, conv),
+                            ),
+                            onTap: () => onSelect(conv.id),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDelete(BuildContext context, Conversation conv) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Conversation'),
+        content: Text('Delete "${conv.displayTitle}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onDelete(conv.id);
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+
+    if (diff.inDays == 0) {
+      return 'Today';
+    } else if (diff.inDays == 1) {
+      return 'Yesterday';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays} days ago';
+    } else {
+      return '${date.month}/${date.day}';
+    }
   }
 }

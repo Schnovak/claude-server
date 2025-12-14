@@ -10,6 +10,15 @@ from .claude import (
     ClaudePluginInfo,
     ClaudePluginInstall,
 )
+from .conversation import (
+    ConversationCreate,
+    ConversationUpdate,
+    ConversationResponse,
+    ConversationWithMessagesResponse,
+    ConversationMessageCreate,
+    ConversationMessageResponse,
+    MessageRole,
+)
 
 __all__ = [
     "UserCreate", "UserLogin", "UserResponse", "Token",
@@ -19,4 +28,8 @@ __all__ = [
     "ClaudeSettingsResponse", "ClaudeSettingsUpdate",
     "ClaudeMessageRequest", "ClaudeMessageResponse",
     "ClaudePluginInfo", "ClaudePluginInstall",
+    "ConversationCreate", "ConversationUpdate",
+    "ConversationResponse", "ConversationWithMessagesResponse",
+    "ConversationMessageCreate", "ConversationMessageResponse",
+    "MessageRole",
 ]

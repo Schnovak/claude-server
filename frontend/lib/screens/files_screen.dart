@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/project.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_client.dart';
+import '../utils/file_download/file_download.dart' as file_download;
 
 class FilesScreen extends StatefulWidget {
   final Project project;
@@ -116,6 +118,83 @@ class _FilesScreenState extends State<FilesScreen> {
     _navigateTo(parts.join('/'));
   }
 
+  Future<void> _uploadFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      if (file.bytes == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not read file data')),
+          );
+        }
+        return;
+      }
+
+      // Show loading indicator
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Uploading ${file.name}...')),
+        );
+      }
+
+      await apiClient.uploadFile(
+        widget.project.id,
+        _currentPath,
+        file.bytes!,
+        file.name,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${file.name} uploaded successfully')),
+        );
+      }
+
+      _loadFiles();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _downloadFile(String fileName) async {
+    final path = _currentPath.isEmpty ? fileName : '$_currentPath/$fileName';
+    final token = context.read<AuthProvider>().token;
+    if (token == null) return;
+
+    // Build download URL with token
+    final downloadUrl = '${apiClient.getFileDownloadUrl(widget.project.id, path)}&token=$token';
+
+    try {
+      // Use cross-platform download utility
+      await file_download.downloadFile(downloadUrl, fileName);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Downloaded $fileName')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -124,6 +203,7 @@ class _FilesScreenState extends State<FilesScreen> {
           path: _currentPath,
           onNavigateUp: _currentPath.isNotEmpty ? _navigateUp : null,
           onRefresh: _loadFiles,
+          onUpload: _uploadFile,
         ),
         const Divider(height: 1),
         Expanded(
@@ -175,17 +255,19 @@ class _FilesScreenState extends State<FilesScreen> {
       itemCount: _files.length,
       itemBuilder: (context, index) {
         final file = _files[index];
+        final isDir = file['is_dir'] == true;
+        final name = file['name'] as String;
         return _FileListTile(
           file: file,
           onTap: () {
-            if (file['is_dir'] == true) {
-              final name = file['name'] as String;
+            if (isDir) {
               final newPath =
                   _currentPath.isEmpty ? name : '$_currentPath/$name';
               _navigateTo(newPath);
             }
           },
           onDelete: () => _confirmDelete(file),
+          onDownload: isDir ? null : () => _downloadFile(name),
         );
       },
     );
@@ -236,11 +318,13 @@ class _PathBar extends StatelessWidget {
   final String path;
   final VoidCallback? onNavigateUp;
   final VoidCallback onRefresh;
+  final VoidCallback onUpload;
 
   const _PathBar({
     required this.path,
     this.onNavigateUp,
     required this.onRefresh,
+    required this.onUpload,
   });
 
   @override
@@ -270,6 +354,11 @@ class _PathBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           IconButton(
+            icon: const Icon(Icons.upload_file),
+            onPressed: onUpload,
+            tooltip: 'Upload file',
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: onRefresh,
             tooltip: 'Refresh',
@@ -284,11 +373,13 @@ class _FileListTile extends StatelessWidget {
   final Map<String, dynamic> file;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback? onDownload;
 
   const _FileListTile({
     required this.file,
     required this.onTap,
     required this.onDelete,
+    this.onDownload,
   });
 
   @override
@@ -308,6 +399,17 @@ class _FileListTile extends StatelessWidget {
       subtitle: isDir ? null : Text(_formatSize(size ?? 0)),
       trailing: PopupMenuButton(
         itemBuilder: (context) => [
+          if (!isDir && onDownload != null)
+            const PopupMenuItem(
+              value: 'download',
+              child: Row(
+                children: [
+                  Icon(Icons.download),
+                  SizedBox(width: 8),
+                  Text('Download'),
+                ],
+              ),
+            ),
           const PopupMenuItem(
             value: 'delete',
             child: Row(
@@ -321,6 +423,7 @@ class _FileListTile extends StatelessWidget {
         ],
         onSelected: (value) {
           if (value == 'delete') onDelete();
+          if (value == 'download' && onDownload != null) onDownload!();
         },
       ),
       onTap: onTap,

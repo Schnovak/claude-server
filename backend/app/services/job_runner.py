@@ -13,6 +13,7 @@ from ..config import get_settings
 from ..database import get_db_context
 from ..models import Job, Project
 from ..models.job import JobStatus, JobType
+from .artifact_scanner import artifact_scanner
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -112,6 +113,17 @@ class JobRunner:
 
                     if return_code == 0:
                         job.status = JobStatus.SUCCESS
+                        # Scan for build artifacts
+                        if job.type in [JobType.BUILD_APK, JobType.BUILD_WEB]:
+                            try:
+                                artifacts = await artifact_scanner.scan_and_create(
+                                    job, project, db
+                                )
+                                logger.info(
+                                    f"Created {len(artifacts)} artifacts for job {job.id}"
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to scan artifacts: {e}")
                     else:
                         job.status = JobStatus.FAILED
 

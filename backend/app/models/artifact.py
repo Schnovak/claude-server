@@ -29,6 +29,9 @@ class Artifact(Base):
     owner_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id"), index=True
     )
+    job_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("jobs.id"), nullable=True, index=True
+    )
     file_path: Mapped[str] = mapped_column(String(500))
     kind: Mapped[ArtifactKind] = mapped_column(
         Enum(ArtifactKind), default=ArtifactKind.OTHER
@@ -44,3 +47,4 @@ class Artifact(Base):
         "Project", back_populates="artifacts"
     )
     owner: Mapped["User"] = relationship("User", back_populates="artifacts")
+    job: Mapped[Optional["Job"]] = relationship("Job", back_populates="artifacts")

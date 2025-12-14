@@ -14,6 +14,7 @@ from .routers import (
     files_router,
     git_router,
     claude_router,
+    conversations_router,
 )
 from .services.job_runner import job_runner
 
@@ -84,6 +85,7 @@ app.include_router(jobs_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
 app.include_router(git_router, prefix="/api")
 app.include_router(claude_router, prefix="/api")
+app.include_router(conversations_router, prefix="/api")
 
 
 @app.get("/")

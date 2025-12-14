@@ -14,6 +14,7 @@ from ..models import User
 settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 
 class AuthService:
@@ -85,5 +86,29 @@ async def get_current_user(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    return user
+
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[User]:
+    """Dependency to get current authenticated user if token is provided."""
+    if credentials is None:
+        return None
+
+    token = credentials.credentials
+    payload = AuthService.decode_token(token)
+
+    if payload is None:
+        return None
+
+    user_id: str = payload.get("sub")
+    if user_id is None:
+        return None
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
 
     return user

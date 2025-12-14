@@ -32,6 +32,15 @@ dependencies:
   # WebSocket
   web_socket_channel: ^2.4.0
 
+  # File picker for uploads
+  file_picker: ^6.1.1
+
+  # HTTP client for mobile downloads
+  dio: ^5.4.0
+
+  # Access to app directories (for mobile downloads)
+  path_provider: ^2.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

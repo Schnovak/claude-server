@@ -269,6 +269,79 @@ async def toggle_plugin(
     return {"message": f"Plugin {toggle_data.name} {status_str}"}
 
 
+# ============== MCP CLI Integration ==============
+
+@router.get("/mcp/status")
+async def get_mcp_status(
+    current_user: User = Depends(get_current_user),
+):
+    """Check if MCP CLI commands are supported."""
+    service = ClaudeService(current_user.id)
+    supported = await service.check_mcp_support()
+    return {"supported": supported}
+
+
+@router.get("/mcp/servers")
+async def list_mcp_servers(
+    current_user: User = Depends(get_current_user),
+):
+    """List installed MCP servers via CLI."""
+    service = ClaudeService(current_user.id)
+    servers = await service.list_mcp_servers_cli()
+    return {"servers": servers}
+
+
+@router.post("/mcp/servers")
+async def add_mcp_server(
+    name: str,
+    command: str = None,
+    scope: str = "user",
+    current_user: User = Depends(get_current_user),
+):
+    """Add an MCP server via CLI."""
+    service = ClaudeService(current_user.id)
+    success = await service.add_mcp_server_cli(name, command, scope=scope)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add MCP server"
+        )
+    return {"message": f"MCP server {name} added"}
+
+
+@router.delete("/mcp/servers/{name}")
+async def remove_mcp_server(
+    name: str,
+    scope: str = "user",
+    current_user: User = Depends(get_current_user),
+):
+    """Remove an MCP server via CLI."""
+    service = ClaudeService(current_user.id)
+    success = await service.remove_mcp_server_cli(name, scope=scope)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP server not found or removal failed"
+        )
+    return {"message": f"MCP server {name} removed"}
+
+
+@router.get("/mcp/servers/{name}")
+async def get_mcp_server(
+    name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Get info about a specific MCP server via CLI."""
+    service = ClaudeService(current_user.id)
+    info = await service.get_mcp_server_info_cli(name)
+    if not info:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCP server not found"
+        )
+    return info
+
+
 # ============== Commands (Advanced) ==============
 
 @router.get("/commands", response_model=List[ClaudeCommandInfo])
@@ -311,7 +384,8 @@ async def send_message(
     db: AsyncSession = Depends(get_db)
 ):
     """Send a message to Claude and get a response."""
-    # Verify project if specified
+    # Fetch project details if specified
+    project = None
     if request.project_id:
         result = await db.execute(
             select(Project).where(
@@ -319,7 +393,8 @@ async def send_message(
                 Project.owner_id == current_user.id
             )
         )
-        if not result.scalar_one_or_none():
+        project = result.scalar_one_or_none()
+        if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Project not found"
@@ -331,6 +406,8 @@ async def send_message(
         result = await service.send_message(
             message=request.message,
             project_id=request.project_id,
+            project_name=project.name if project else None,
+            project_type=project.type.value if project else None,
             continue_conversation=request.continue_conversation,
         )
 
@@ -369,7 +446,8 @@ async def send_message_stream(
     db: AsyncSession = Depends(get_db)
 ):
     """Send a message to Claude and stream the response using Server-Sent Events."""
-    # Verify project if specified
+    # Fetch project details if specified
+    project = None
     if request.project_id:
         result = await db.execute(
             select(Project).where(
@@ -377,7 +455,8 @@ async def send_message_stream(
                 Project.owner_id == current_user.id
             )
         )
-        if not result.scalar_one_or_none():
+        project = result.scalar_one_or_none()
+        if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Project not found"
@@ -390,6 +469,8 @@ async def send_message_stream(
             async for chunk in service.send_message_stream(
                 message=request.message,
                 project_id=request.project_id,
+                project_name=project.name if project else None,
+                project_type=project.type.value if project else None,
                 continue_conversation=request.continue_conversation,
             ):
                 # SSE format: data: <json>\n\n

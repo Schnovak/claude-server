@@ -60,3 +60,6 @@ class Job(Base):
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="jobs")
     owner: Mapped["User"] = relationship("User", back_populates="jobs")
+    artifacts: Mapped[list["Artifact"]] = relationship(
+        "Artifact", back_populates="job"
+    )

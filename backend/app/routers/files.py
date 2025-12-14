@@ -15,7 +15,7 @@ from ..database import get_db
 from ..models import User, Project, Artifact
 from ..models.artifact import ArtifactKind as ArtifactKindModel
 from ..schemas import ArtifactResponse
-from ..services.auth import get_current_user
+from ..services.auth import get_current_user, get_current_user_optional
 from ..services.workspace import WorkspaceService
 from ..services.file_watcher import file_watcher
 from ..config import get_settings
@@ -83,15 +83,32 @@ async def upload_file(
 async def download_file(
     project_id: str,
     path: str = Query(..., description="Relative path within project"),
-    current_user: User = Depends(get_current_user),
+    token: Optional[str] = Query(None, description="Auth token for browser downloads"),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
     """Download a file from a project."""
+    # Handle token-based auth for browser downloads
+    user_id = None
+    if current_user:
+        user_id = current_user.id
+    elif token:
+        from ..services.auth import AuthService
+        payload = AuthService.decode_token(token)
+        if payload:
+            user_id = payload.get("sub")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+
     # Verify project ownership
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
-            Project.owner_id == current_user.id
+            Project.owner_id == user_id
         )
     )
     project = result.scalar_one_or_none()
@@ -107,7 +124,7 @@ async def download_file(
 
     # Security check
     if not WorkspaceService.validate_path_within_workspace(
-        current_user.id, file_path
+        user_id, file_path
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -32,6 +32,118 @@ class ClaudeService:
         """Get the user's API key."""
         return await WorkspaceService.get_api_key(self.user_id)
 
+    def _build_system_prompt(
+        self,
+        project_name: Optional[str] = None,
+        project_type: Optional[str] = None,
+        project_path: Optional[Path] = None,
+    ) -> str:
+        """Build a comprehensive system prompt giving Claude full context."""
+
+        project_context = ""
+        if project_name:
+            project_context = f"""
+## Current Project
+- **Name:** {project_name}
+- **Type:** {project_type or 'general'}
+- **Path:** {project_path or 'workspace root'}
+
+You are working within this project's directory. All file operations are relative to this project unless an absolute path is specified.
+"""
+
+        type_specific_hints = ""
+        if project_type:
+            hints = {
+                "flutter": """
+### Flutter Project Guidelines
+- Use `flutter pub get` to install dependencies
+- Run `flutter analyze` to check for issues
+- Use `flutter run` to test the app
+- Edit files in `lib/` for Dart code
+- The `pubspec.yaml` defines dependencies
+""",
+                "python": """
+### Python Project Guidelines
+- Check for `requirements.txt` or `pyproject.toml` for dependencies
+- Use virtual environments when available
+- Run tests with `pytest` if available
+- Follow PEP 8 style guidelines
+""",
+                "node": """
+### Node.js Project Guidelines
+- Use `npm install` or `yarn` to install dependencies
+- Check `package.json` for scripts and dependencies
+- Use `npm run` to execute defined scripts
+- Look for TypeScript config in `tsconfig.json`
+""",
+                "web": """
+### Web Project Guidelines
+- Check for framework-specific configs (webpack, vite, etc.)
+- Look for `index.html` as entry point
+- CSS/SCSS files for styling
+- JavaScript/TypeScript for functionality
+""",
+            }
+            type_specific_hints = hints.get(project_type.lower(), "")
+
+        return f"""# Claude Server Assistant
+
+You are Claude, an AI assistant integrated into Claude Server - a web-based development platform. You help users build, edit, and manage software projects directly through this interface.
+
+## Platform Overview
+Claude Server is a self-hosted development environment that allows users to:
+- Create and manage multiple projects
+- Chat with you (Claude) to get coding help
+- Browse and edit files in their projects
+- Manage Git repositories and push to GitHub
+- All within a web browser interface
+
+## Your Capabilities
+You have full access to the project's file system and can:
+
+### File Operations
+- **Read files:** View any file in the project
+- **Write files:** Create new files with content
+- **Edit files:** Modify existing files precisely
+- **Search:** Find files by name (glob) or content (grep)
+
+### Terminal Operations
+- **Run commands:** Execute bash commands in the project directory
+- **Build/compile:** Run build tools, compilers, test suites
+- **Git operations:** Stage, commit, and manage version control
+
+### Code Assistance
+- Explain code and architecture
+- Debug issues and fix bugs
+- Implement new features
+- Refactor and improve code quality
+- Write tests and documentation
+{project_context}{type_specific_hints}
+## Guidelines
+
+1. **Be proactive:** When asked to implement something, do it directly. Don't just explain - write the code.
+
+2. **Make complete changes:** When editing files, make all necessary changes. Don't leave TODOs or placeholders.
+
+3. **Preserve working code:** Be careful not to break existing functionality. Test your understanding before making changes.
+
+4. **Explain when helpful:** Briefly explain what you're doing, but focus on action over explanation.
+
+5. **Use appropriate tools:** Choose the right tool for each task - Read for viewing, Edit for modifications, Bash for commands.
+
+6. **Handle errors gracefully:** If something fails, explain what went wrong and try alternative approaches.
+
+7. **Stay focused:** Work on what the user asks. Don't make unrequested changes or add unnecessary features.
+
+8. **Security conscious:** Never expose secrets, API keys, or sensitive data. Don't run dangerous commands.
+
+## Response Style
+- Be concise and direct
+- Show file paths when referencing code
+- Use markdown formatting for readability
+- When showing code changes, be specific about what changed and why
+"""
+
     def _build_sandboxed_command(
         self,
         cmd: List[str],
@@ -127,6 +239,8 @@ class ClaudeService:
         self,
         message: str,
         project_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+        project_type: Optional[str] = None,
         continue_conversation: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -135,6 +249,8 @@ class ClaudeService:
         Args:
             message: The message to send
             project_id: Optional project to focus on
+            project_name: Name of the project for context
+            project_type: Type of project (flutter, python, node, web, other)
             continue_conversation: Whether to continue previous conversation
 
         Returns:
@@ -151,6 +267,14 @@ class ClaudeService:
 
         # Add message via stdin with --print flag for non-interactive output
         cmd.extend(["--print", "-p", message])
+
+        # Add system prompt with full context
+        system_prompt = self._build_system_prompt(
+            project_name=project_name,
+            project_type=project_type,
+            project_path=cwd,
+        )
+        cmd.extend(["--system-prompt", system_prompt])
 
         # Bypass permission prompts - safe because we sandbox with firejail
         cmd.append("--permission-mode")
@@ -218,6 +342,8 @@ class ClaudeService:
         self,
         message: str,
         project_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+        project_type: Optional[str] = None,
         continue_conversation: bool = False,
     ) -> AsyncGenerator[str, None]:
         """
@@ -238,6 +364,14 @@ class ClaudeService:
         cmd.extend(["--output-format", "stream-json"])
         cmd.append("--verbose")  # Required for stream-json
         cmd.append("--include-partial-messages")
+
+        # Add system prompt with full context
+        system_prompt = self._build_system_prompt(
+            project_name=project_name,
+            project_type=project_type,
+            project_path=cwd,
+        )
+        cmd.extend(["--system-prompt", system_prompt])
 
         # Bypass permission prompts - safe because we sandbox with firejail
         cmd.extend(["--permission-mode", "bypassPermissions"])
@@ -543,6 +677,217 @@ class ClaudeService:
             json.dump(config, f, indent=2)
 
         return True
+
+    async def check_mcp_support(self) -> bool:
+        """
+        Check if 'claude mcp' commands are available.
+
+        Returns:
+            True if MCP commands are supported
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                settings.claude_binary, "mcp", "--help",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await process.communicate()
+            return process.returncode == 0
+        except Exception:
+            return False
+
+    async def list_mcp_servers_cli(self) -> List[Dict[str, Any]]:
+        """
+        List installed MCP servers using 'claude mcp list'.
+
+        Returns:
+            List of MCP server dictionaries
+        """
+        try:
+            env = {**os.environ, "CLAUDE_CONFIG_DIR": str(self.claude_config)}
+            api_key = await self.get_api_key()
+            if api_key:
+                env["ANTHROPIC_API_KEY"] = api_key
+
+            process = await asyncio.create_subprocess_exec(
+                settings.claude_binary, "mcp", "list",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                logger.warning(f"mcp list failed: {stderr.decode()}")
+                return []
+
+            # Parse the output
+            output = stdout.decode().strip()
+            servers = []
+
+            # The output format is typically a table or JSON
+            # Try to parse as JSON first
+            try:
+                data = json.loads(output)
+                if isinstance(data, list):
+                    return data
+                elif isinstance(data, dict):
+                    for name, config in data.items():
+                        servers.append({
+                            "name": name,
+                            "command": config.get("command", ""),
+                            "args": config.get("args", []),
+                            "enabled": not config.get("disabled", False),
+                        })
+                    return servers
+            except json.JSONDecodeError:
+                pass
+
+            # Parse as text output (line-based)
+            for line in output.split("\n"):
+                line = line.strip()
+                if not line or line.startswith("-") or line.startswith("="):
+                    continue
+                # Extract server name from line
+                parts = line.split()
+                if parts:
+                    servers.append({
+                        "name": parts[0],
+                        "enabled": True,
+                    })
+
+            return servers
+
+        except Exception as e:
+            logger.error(f"Error listing MCP servers: {e}")
+            return []
+
+    async def add_mcp_server_cli(
+        self,
+        name: str,
+        command: Optional[str] = None,
+        args: Optional[List[str]] = None,
+        scope: str = "user"
+    ) -> bool:
+        """
+        Add an MCP server using 'claude mcp add'.
+
+        Args:
+            name: Server name
+            command: Command to run the server (optional for well-known servers)
+            args: Arguments for the command
+            scope: Scope (user, project, local)
+
+        Returns:
+            True if successful
+        """
+        try:
+            env = {**os.environ, "CLAUDE_CONFIG_DIR": str(self.claude_config)}
+            api_key = await self.get_api_key()
+            if api_key:
+                env["ANTHROPIC_API_KEY"] = api_key
+
+            cmd = [settings.claude_binary, "mcp", "add", "-s", scope, name]
+
+            if command:
+                cmd.append("--")
+                cmd.append(command)
+                if args:
+                    cmd.extend(args)
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                logger.warning(f"mcp add failed: {stderr.decode()}")
+                return False
+
+            logger.info(f"Added MCP server: {name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding MCP server: {e}")
+            return False
+
+    async def remove_mcp_server_cli(self, name: str, scope: str = "user") -> bool:
+        """
+        Remove an MCP server using 'claude mcp remove'.
+
+        Args:
+            name: Server name to remove
+            scope: Scope (user, project, local)
+
+        Returns:
+            True if successful
+        """
+        try:
+            env = {**os.environ, "CLAUDE_CONFIG_DIR": str(self.claude_config)}
+            api_key = await self.get_api_key()
+            if api_key:
+                env["ANTHROPIC_API_KEY"] = api_key
+
+            cmd = [settings.claude_binary, "mcp", "remove", "-s", scope, name]
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                logger.warning(f"mcp remove failed: {stderr.decode()}")
+                return False
+
+            logger.info(f"Removed MCP server: {name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error removing MCP server: {e}")
+            return False
+
+    async def get_mcp_server_info_cli(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get info about a specific MCP server using 'claude mcp get'.
+
+        Args:
+            name: Server name
+
+        Returns:
+            Server info dictionary or None
+        """
+        try:
+            env = {**os.environ, "CLAUDE_CONFIG_DIR": str(self.claude_config)}
+            api_key = await self.get_api_key()
+            if api_key:
+                env["ANTHROPIC_API_KEY"] = api_key
+
+            process = await asyncio.create_subprocess_exec(
+                settings.claude_binary, "mcp", "get", name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                return None
+
+            output = stdout.decode().strip()
+            try:
+                return json.loads(output)
+            except json.JSONDecodeError:
+                return {"name": name, "raw_output": output}
+
+        except Exception as e:
+            logger.error(f"Error getting MCP server info: {e}")
+            return None
 
     def _extract_modified_files(self, response: str) -> List[str]:
         """Extract file paths that were modified from Claude's response."""

@@ -7,19 +7,24 @@ import '../models/user.dart';
 import '../models/project.dart';
 import '../models/job.dart';
 import '../models/claude_settings.dart';
+import '../models/conversation.dart';
 
 /// Represents Claude's current activity (tool use, etc.)
 class ClaudeActivity {
-  final String type; // tool_start, tool_call, tool_input, tool_end
+  final String type; // tool_start, tool_call, tool_input, tool_end, tool_result
   final String? tool;
   final Map<String, dynamic>? input;
   final String? partial;
+  final String? result;
+  final bool? success;
 
   ClaudeActivity({
     required this.type,
     this.tool,
     this.input,
     this.partial,
+    this.result,
+    this.success,
   });
 
   factory ClaudeActivity.fromJson(Map<String, dynamic> json) {
@@ -28,6 +33,8 @@ class ClaudeActivity {
       tool: json['tool'],
       input: json['input'],
       partial: json['partial'],
+      result: json['result'],
+      success: json['success'],
     );
   }
 
@@ -53,6 +60,43 @@ class ClaudeActivity {
         return 'Searching web';
       default:
         return tool ?? 'Working';
+    }
+  }
+
+  /// Get a short description of what this activity is doing
+  String get detail {
+    if (input == null) return '';
+
+    switch (tool) {
+      case 'Read':
+        final path = input!['file_path'] ?? '';
+        // Show only the filename or last part of path
+        final parts = path.toString().split('/');
+        return parts.isNotEmpty ? parts.last : path.toString();
+      case 'Write':
+        final path = input!['file_path'] ?? '';
+        final parts = path.toString().split('/');
+        return parts.isNotEmpty ? parts.last : path.toString();
+      case 'Edit':
+        final path = input!['file_path'] ?? '';
+        final parts = path.toString().split('/');
+        return parts.isNotEmpty ? parts.last : path.toString();
+      case 'Bash':
+        final cmd = input!['command'] ?? input!['description'] ?? '';
+        // Truncate long commands
+        final cmdStr = cmd.toString();
+        return cmdStr.length > 50 ? '${cmdStr.substring(0, 47)}...' : cmdStr;
+      case 'Glob':
+        return input!['pattern']?.toString() ?? '';
+      case 'Grep':
+        return input!['pattern']?.toString() ?? '';
+      case 'WebFetch':
+        final url = input!['url'] ?? '';
+        return url.toString();
+      case 'WebSearch':
+        return input!['query']?.toString() ?? '';
+      default:
+        return '';
     }
   }
 }
@@ -477,6 +521,33 @@ class ApiClient {
     await _handleResponse(response);
   }
 
+  /// Get the download URL for a file
+  String getFileDownloadUrl(String projectId, String path) {
+    final encodedPath = Uri.encodeComponent(path);
+    return '$baseUrl/projects/$projectId/files/download?path=$encodedPath';
+  }
+
+  /// Upload a file to a project
+  Future<Map<String, dynamic>> uploadFile(
+    String projectId,
+    String path,
+    List<int> bytes,
+    String filename,
+  ) async {
+    final uri = Uri.parse('$baseUrl/projects/$projectId/files/upload?path=$path');
+    final request = http.MultipartRequest('POST', uri);
+    request.headers['Authorization'] = 'Bearer $_token';
+    request.files.add(http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: filename,
+    ));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    return await _handleResponse(response);
+  }
+
   // ============== Git ==============
 
   Future<void> gitInit(String projectId, {String branch = 'main'}) async {
@@ -558,6 +629,104 @@ class ApiClient {
     );
     final data = await _handleResponse(response);
     return List<Map<String, dynamic>>.from(data['commits']);
+  }
+
+  // ============== Conversations ==============
+
+  Future<List<Conversation>> getConversations(String projectId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/projects/$projectId/conversations'),
+      headers: _headers,
+    );
+    final data = await _handleResponse(response) as List;
+    return data.map((c) => Conversation.fromJson(c)).toList();
+  }
+
+  Future<Conversation> createConversation(
+    String projectId, {
+    String? title,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/projects/$projectId/conversations'),
+      headers: _headers,
+      body: jsonEncode({
+        if (title != null) 'title': title,
+      }),
+    );
+    final data = await _handleResponse(response);
+    return Conversation.fromJson(data);
+  }
+
+  Future<ConversationWithMessages> getConversation(
+    String projectId,
+    String conversationId,
+  ) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/projects/$projectId/conversations/$conversationId'),
+      headers: _headers,
+    );
+    final data = await _handleResponse(response);
+    return ConversationWithMessages.fromJson(data);
+  }
+
+  Future<Conversation> updateConversation(
+    String projectId,
+    String conversationId, {
+    String? title,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/projects/$projectId/conversations/$conversationId'),
+      headers: _headers,
+      body: jsonEncode({
+        if (title != null) 'title': title,
+      }),
+    );
+    final data = await _handleResponse(response);
+    return Conversation.fromJson(data);
+  }
+
+  Future<void> deleteConversation(
+    String projectId,
+    String conversationId,
+  ) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/projects/$projectId/conversations/$conversationId'),
+      headers: _headers,
+    );
+    await _handleResponse(response);
+  }
+
+  Future<ConversationMessage> addConversationMessage(
+    String projectId,
+    String conversationId,
+    ConversationMessage message,
+  ) async {
+    final response = await http.post(
+      Uri.parse(
+        '$baseUrl/projects/$projectId/conversations/$conversationId/messages',
+      ),
+      headers: _headers,
+      body: jsonEncode(message.toCreateJson()),
+    );
+    final data = await _handleResponse(response);
+    return ConversationMessage.fromJson(data);
+  }
+
+  Future<List<ConversationMessage>> getConversationMessages(
+    String projectId,
+    String conversationId, {
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final response = await http.get(
+      Uri.parse(
+        '$baseUrl/projects/$projectId/conversations/$conversationId/messages'
+        '?limit=$limit&offset=$offset',
+      ),
+      headers: _headers,
+    );
+    final data = await _handleResponse(response) as List;
+    return data.map((m) => ConversationMessage.fromJson(m)).toList();
   }
 }
 

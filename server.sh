@@ -170,14 +170,52 @@ run_setup() {
         print_warn "Claude CLI not found"
         echo -e "       Install: ${CYAN}npm install -g @anthropic-ai/claude-code${NC}"
     fi
-    
+
     if [ -n "$MISSING" ]; then
         echo ""
         print_err "Missing required:$MISSING"
         echo "  Please install and run this script again."
         exit 1
     fi
-    
+
+    # Install firejail for sandboxing (security)
+    print_step "Checking sandbox security..."
+    if check_command firejail; then
+        print_ok "Firejail installed"
+        HAS_FIREJAIL=true
+    else
+        print_warn "Firejail not found - attempting to install..."
+        if check_command apt-get; then
+            if sudo apt-get install -y firejail > /dev/null 2>&1; then
+                print_ok "Firejail installed successfully"
+                HAS_FIREJAIL=true
+            else
+                print_warn "Could not install firejail (may need sudo password)"
+                print_warn "Install manually: sudo apt install firejail"
+                HAS_FIREJAIL=false
+            fi
+        elif check_command dnf; then
+            if sudo dnf install -y firejail > /dev/null 2>&1; then
+                print_ok "Firejail installed successfully"
+                HAS_FIREJAIL=true
+            else
+                print_warn "Could not install firejail"
+                HAS_FIREJAIL=false
+            fi
+        elif check_command pacman; then
+            if sudo pacman -S --noconfirm firejail > /dev/null 2>&1; then
+                print_ok "Firejail installed successfully"
+                HAS_FIREJAIL=true
+            else
+                print_warn "Could not install firejail"
+                HAS_FIREJAIL=false
+            fi
+        else
+            print_warn "Unknown package manager - install firejail manually"
+            HAS_FIREJAIL=false
+        fi
+    fi
+
     # Create directories
     print_step "Creating directories..."
     mkdir -p "$PROJECT_ROOT/data/artifacts"
@@ -230,8 +268,8 @@ LOGS_PATH=$PROJECT_ROOT/data/logs
 CLAUDE_BINARY=claude
 DEFAULT_MODEL=claude-sonnet-4-20250514
 
-# Sandbox (set true when firejail/docker available)
-REQUIRE_SANDBOX=false
+# Sandbox (true when firejail available)
+REQUIRE_SANDBOX=$HAS_FIREJAIL
 ENVFILE
         print_ok "Configuration generated"
     else

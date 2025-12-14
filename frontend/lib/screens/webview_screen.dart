@@ -23,25 +23,16 @@ class WebViewScreen extends StatelessWidget {
 
   /// Opens a localhost URL appropriately for the platform.
   ///
-  /// On mobile: Pushes WebViewScreen to navigator
-  /// On web: Opens in new tab
+  /// On mobile: Pushes WebViewScreen with native WebView
+  /// On web: Pushes WebViewScreen with iframe (so localhost resolves to server)
   static Future<void> openUrl(BuildContext context, String url, {String? title}) async {
-    if (kIsWeb) {
-      // On web, open in new tab
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } else {
-      // On mobile, use WebView
-      if (context.mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => WebViewScreen(url: url, title: title),
-          ),
-        );
-      }
+    if (context.mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => WebViewScreen(url: url, title: title),
+        ),
+      );
     }
   }
 

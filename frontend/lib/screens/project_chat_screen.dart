@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/project.dart';
 import '../models/claude_settings.dart';
 import '../models/conversation.dart';
+import '../providers/auth_provider.dart';
 import '../providers/claude_provider.dart';
 import '../services/api_client.dart';
 import '../utils/localhost_url.dart';
@@ -387,7 +388,8 @@ class _ChatBubble extends StatelessWidget {
                       if (href != null) {
                         // Handle localhost URLs specially
                         if (LocalhostUrl.isLocalhost(href)) {
-                          final transformedUrl = LocalhostUrl.transform(href);
+                          final token = context.read<AuthProvider>().token;
+                          final transformedUrl = LocalhostUrl.transform(href, token: token);
                           await WebViewScreen.openUrl(
                             context,
                             transformedUrl,
@@ -672,7 +674,8 @@ class _StreamingBubble extends StatelessWidget {
                         if (href != null) {
                           // Handle localhost URLs specially
                           if (LocalhostUrl.isLocalhost(href)) {
-                            final transformedUrl = LocalhostUrl.transform(href);
+                            final token = context.read<AuthProvider>().token;
+                            final transformedUrl = LocalhostUrl.transform(href, token: token);
                             await WebViewScreen.openUrl(
                               context,
                               transformedUrl,

@@ -1,12 +1,10 @@
-import 'package:flutter/foundation.dart';
+import '../services/api_client.dart';
 
-import 'localhost_url_stub.dart'
-    if (dart.library.html) 'localhost_url_web.dart' as platform;
-
-/// Helper for transforming localhost URLs to be accessible from the client.
+/// Helper for transforming localhost URLs to use the backend proxy.
 ///
 /// When Claude runs a dev server on localhost:3000 on the server machine,
-/// we need to transform that URL so the client can access it.
+/// we transform the URL to go through our backend proxy so the client
+/// can access it regardless of where they're connecting from.
 class LocalhostUrl {
   /// Checks if a URL points to localhost
   static bool isLocalhost(String url) {
@@ -20,35 +18,39 @@ class LocalhostUrl {
     }
   }
 
-  /// Transforms a localhost URL to be accessible from the current context.
+  /// Transforms a localhost URL to use the backend proxy.
   ///
-  /// On web: Replaces localhost with the current page's hostname
-  /// In debug mode: Returns the URL as-is (assumes local development)
-  static String transform(String url, {String? serverHost}) {
+  /// Converts http://localhost:3000/path to /api/proxy/3000/path?token=...
+  /// which the backend will forward to the actual localhost server.
+  ///
+  /// [token] is required for authentication when loading in iframe/webview.
+  static String transform(String url, {String? token}) {
     if (!isLocalhost(url)) return url;
 
     try {
       final uri = Uri.parse(url);
+      final port = uri.port;
 
-      // Use provided server host or detect from platform
-      final host = serverHost ?? platform.getCurrentHost();
-
-      // In debug mode with no server host, return as-is
-      if (host == null) {
+      // Port is required for proxy
+      if (port == 0) {
         return url;
       }
 
-      // Create new URI with the server's host but keep the port from the localhost URL
-      final newUri = Uri(
-        scheme: uri.scheme.isEmpty ? 'http' : uri.scheme,
-        host: host,
-        port: uri.port,
-        path: uri.path,
-        query: uri.query.isEmpty ? null : uri.query,
-        fragment: uri.fragment.isEmpty ? null : uri.fragment,
-      );
+      // Build path for the proxy endpoint
+      final path = uri.path.isEmpty ? '' : uri.path;
 
-      return newUri.toString();
+      // Build query string, including original query params and token
+      final queryParams = <String>[];
+      if (uri.query.isNotEmpty) {
+        queryParams.add(uri.query);
+      }
+      if (token != null) {
+        queryParams.add('token=$token');
+      }
+      final query = queryParams.isEmpty ? '' : '?${queryParams.join('&')}';
+
+      // Use the API base URL to build the proxy URL
+      return '${ApiClient.baseUrl}/proxy/$port$path$query';
     } catch (_) {
       return url;
     }

@@ -5,6 +5,7 @@ from .files import router as files_router
 from .git import router as git_router
 from .claude import router as claude_router
 from .conversations import router as conversations_router
+from .proxy import router as proxy_router
 
 __all__ = [
     "auth_router",
@@ -14,4 +15,5 @@ __all__ = [
     "git_router",
     "claude_router",
     "conversations_router",
+    "proxy_router",
 ]

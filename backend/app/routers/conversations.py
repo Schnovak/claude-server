@@ -1,6 +1,7 @@
 """
 Conversations router for per-project chat history persistence.
 """
+import json
 from datetime import datetime
 from typing import List, Optional
 
@@ -240,13 +241,13 @@ async def add_message(
 
     now = datetime.utcnow()
 
-    # Create message
+    # Create message - serialize lists to JSON for storage
     message = ConversationMessage(
         conversation_id=conversation_id,
         role=data.role,
         content=data.content,
-        files_modified=data.files_modified,
-        suggested_commands=data.suggested_commands,
+        files_modified=json.dumps(data.files_modified) if data.files_modified else None,
+        suggested_commands=json.dumps(data.suggested_commands) if data.suggested_commands else None,
         tokens_used=data.tokens_used,
         created_at=now,
     )

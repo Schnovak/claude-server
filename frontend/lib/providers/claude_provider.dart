@@ -297,6 +297,16 @@ class ClaudeProvider extends ChangeNotifier {
 
   /// Load conversations for a project
   Future<void> loadConversations(String projectId) async {
+    // Clear state when switching to a different project
+    if (_currentProjectId != projectId) {
+      _currentConversationId = null;
+      _chatHistory = [];
+      _streamingResponse = '';
+      _pendingUserMessage = '';
+      _currentActivity = null;
+      _activityHistory = [];
+    }
+
     _currentProjectId = projectId;
     _isLoading = true;
     _error = null;

@@ -195,6 +195,32 @@ class _FilesScreenState extends State<FilesScreen> {
     }
   }
 
+  Future<void> _downloadFolder(String folderName) async {
+    final path = _currentPath.isEmpty ? folderName : '$_currentPath/$folderName';
+    final token = context.read<AuthProvider>().token;
+    if (token == null) return;
+
+    // Build download URL with token
+    final downloadUrl = '${apiClient.getFolderDownloadUrl(widget.project.id, path)}&token=$token';
+
+    try {
+      // Use cross-platform download utility
+      await file_download.downloadFile(downloadUrl, '$folderName.zip');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Downloaded $folderName.zip')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -268,6 +294,7 @@ class _FilesScreenState extends State<FilesScreen> {
           },
           onDelete: () => _confirmDelete(file),
           onDownload: isDir ? null : () => _downloadFile(name),
+          onDownloadFolder: isDir ? () => _downloadFolder(name) : null,
         );
       },
     );
@@ -374,12 +401,14 @@ class _FileListTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onDelete;
   final VoidCallback? onDownload;
+  final VoidCallback? onDownloadFolder;
 
   const _FileListTile({
     required this.file,
     required this.onTap,
     required this.onDelete,
     this.onDownload,
+    this.onDownloadFolder,
   });
 
   @override
@@ -410,6 +439,17 @@ class _FileListTile extends StatelessWidget {
                 ],
               ),
             ),
+          if (isDir && onDownloadFolder != null)
+            const PopupMenuItem(
+              value: 'download_folder',
+              child: Row(
+                children: [
+                  Icon(Icons.archive),
+                  SizedBox(width: 8),
+                  Text('Download as ZIP'),
+                ],
+              ),
+            ),
           const PopupMenuItem(
             value: 'delete',
             child: Row(
@@ -424,6 +464,7 @@ class _FileListTile extends StatelessWidget {
         onSelected: (value) {
           if (value == 'delete') onDelete();
           if (value == 'download' && onDownload != null) onDownload!();
+          if (value == 'download_folder' && onDownloadFolder != null) onDownloadFolder!();
         },
       ),
       onTap: onTap,

@@ -142,6 +142,9 @@ You have full access to the project's file system and can:
 - Show file paths when referencing code
 - Use markdown formatting for readability
 - When showing code changes, be specific about what changed and why
+- Do NOT add notes, disclaimers, or summaries at the end of your responses
+- Do NOT add "Note:" sections unless explicitly relevant to the task
+- End responses naturally without extra commentary
 """
 
     def _build_sandboxed_command(

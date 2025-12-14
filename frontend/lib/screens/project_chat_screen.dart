@@ -8,7 +8,9 @@ import '../models/claude_settings.dart';
 import '../models/conversation.dart';
 import '../providers/claude_provider.dart';
 import '../services/api_client.dart';
+import '../utils/localhost_url.dart';
 import 'settings_screen.dart';
+import 'webview_screen.dart';
 
 class ProjectChatScreen extends StatefulWidget {
   final Project project;
@@ -383,9 +385,19 @@ class _ChatBubble extends StatelessWidget {
                     selectable: true,
                     onTapLink: (text, href, title) async {
                       if (href != null) {
-                        final uri = Uri.parse(href);
-                        if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        // Handle localhost URLs specially
+                        if (LocalhostUrl.isLocalhost(href)) {
+                          final transformedUrl = LocalhostUrl.transform(href);
+                          await WebViewScreen.openUrl(
+                            context,
+                            transformedUrl,
+                            title: text.isNotEmpty ? text : 'Preview',
+                          );
+                        } else {
+                          final uri = Uri.parse(href);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
                         }
                       }
                     },
@@ -658,9 +670,19 @@ class _StreamingBubble extends StatelessWidget {
                       selectable: true,
                       onTapLink: (text, href, title) async {
                         if (href != null) {
-                          final uri = Uri.parse(href);
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          // Handle localhost URLs specially
+                          if (LocalhostUrl.isLocalhost(href)) {
+                            final transformedUrl = LocalhostUrl.transform(href);
+                            await WebViewScreen.openUrl(
+                              context,
+                              transformedUrl,
+                              title: text.isNotEmpty ? text : 'Preview',
+                            );
+                          } else {
+                            final uri = Uri.parse(href);
+                            if (await canLaunchUrl(uri)) {
+                              await launchUrl(uri, mode: LaunchMode.externalApplication);
+                            }
                           }
                         }
                       },

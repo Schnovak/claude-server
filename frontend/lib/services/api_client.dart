@@ -527,6 +527,12 @@ class ApiClient {
     return '$baseUrl/projects/$projectId/files/download?path=$encodedPath';
   }
 
+  /// Get the download URL for a folder (as ZIP)
+  String getFolderDownloadUrl(String projectId, String path) {
+    final encodedPath = Uri.encodeComponent(path);
+    return '$baseUrl/projects/$projectId/files/download-folder?path=$encodedPath';
+  }
+
   /// Upload a file to a project
   Future<Map<String, dynamic>> uploadFile(
     String projectId,

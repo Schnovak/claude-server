@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -10,6 +10,9 @@ import os
 import shutil
 import json
 import logging
+import zipfile
+import io
+import tempfile
 
 from ..database import get_db
 from ..models import User, Project, Artifact
@@ -140,6 +143,96 @@ async def download_file(
     return FileResponse(
         path=str(file_path),
         filename=file_path.name,
+    )
+
+
+@router.get("/projects/{project_id}/files/download-folder")
+async def download_folder(
+    project_id: str,
+    path: str = Query("", description="Relative path within project (empty for root)"),
+    token: Optional[str] = Query(None, description="Auth token for browser downloads"),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """Download a folder as a ZIP file."""
+    # Handle token-based auth for browser downloads
+    user_id = None
+    if current_user:
+        user_id = current_user.id
+    elif token:
+        from ..services.auth import AuthService
+        payload = AuthService.decode_token(token)
+        if payload:
+            user_id = payload.get("sub")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+
+    # Verify project ownership
+    result = await db.execute(
+        select(Project).where(
+            Project.id == project_id,
+            Project.owner_id == user_id
+        )
+    )
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+
+    # Build folder path
+    folder_path = Path(project.root_path) / path if path else Path(project.root_path)
+
+    # Security check
+    if not WorkspaceService.validate_path_within_workspace(user_id, folder_path):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid path"
+        )
+
+    if not folder_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Folder not found"
+        )
+
+    if not folder_path.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Path is not a folder"
+        )
+
+    # Create ZIP in memory
+    def create_zip():
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in folder_path.rglob('*'):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(folder_path)
+                    zf.write(file_path, arcname)
+        buffer.seek(0)
+        return buffer
+
+    # Run in thread to avoid blocking
+    loop = asyncio.get_event_loop()
+    zip_buffer = await loop.run_in_executor(None, create_zip)
+
+    # Determine filename
+    folder_name = folder_path.name if path else project.name
+    zip_filename = f"{folder_name}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_filename}"'
+        }
     )
 
 

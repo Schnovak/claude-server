@@ -41,6 +41,9 @@ dependencies:
   # Access to app directories (for mobile downloads)
   path_provider: ^2.1.0
 
+  # WebView for in-app localhost viewing
+  webview_flutter: ^4.4.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

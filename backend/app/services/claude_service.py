@@ -28,6 +28,12 @@ class ClaudeService:
         self.workspace = settings.get_user_workspace(user_id)
         self.claude_config = settings.get_user_claude_config_path(user_id)
 
+    def _is_sandboxed(self) -> bool:
+        """Check if sandbox is available and enabled."""
+        if not settings.require_sandbox:
+            return False
+        return FIREJAIL_AVAILABLE or BWRAP_AVAILABLE
+
     async def get_api_key(self) -> Optional[str]:
         """Get the user's API key."""
         return await WorkspaceService.get_api_key(self.user_id)
@@ -137,7 +143,9 @@ You have full access to the project's file system and can:
 
 8. **Security conscious:** Never expose secrets, API keys, or sensitive data. Don't run dangerous commands.
 
-9. **CRITICAL - Localhost links format:** When you start ANY server or service on localhost:
+9. **CRITICAL - Stay in project directory:** You MUST only read/write files within the current project directory. NEVER access files outside the project path shown above. If asked to access files elsewhere, refuse and explain you can only work within the project.
+
+10. **CRITICAL - Localhost links format:** When you start ANY server or service on localhost:
    - Use localhost URLs only (NOT server IP addresses)
    - You MUST format URLs as markdown links with this EXACT syntax: [http://localhost:PORT](http://localhost:PORT)
    - Plain text URLs like "http://localhost:3000" will NOT work - they must be markdown links
@@ -288,9 +296,12 @@ You have full access to the project's file system and can:
         )
         cmd.extend(["--system-prompt", system_prompt])
 
-        # Bypass permission prompts - safe because we sandbox with firejail
-        cmd.append("--permission-mode")
-        cmd.append("bypassPermissions")
+        # Permission mode: only bypass if sandbox is available, otherwise use default
+        if self._is_sandboxed():
+            cmd.extend(["--permission-mode", "bypassPermissions"])
+        else:
+            # Use acceptEdits to allow file operations but with Claude's built-in safety
+            cmd.extend(["--permission-mode", "acceptEdits"])
 
         # If continuing conversation, add continue flag
         if continue_conversation:
@@ -385,8 +396,12 @@ You have full access to the project's file system and can:
         )
         cmd.extend(["--system-prompt", system_prompt])
 
-        # Bypass permission prompts - safe because we sandbox with firejail
-        cmd.extend(["--permission-mode", "bypassPermissions"])
+        # Permission mode: only bypass if sandbox is available, otherwise use default
+        if self._is_sandboxed():
+            cmd.extend(["--permission-mode", "bypassPermissions"])
+        else:
+            # Use acceptEdits to allow file operations but with Claude's built-in safety
+            cmd.extend(["--permission-mode", "acceptEdits"])
 
         if continue_conversation:
             cmd.append("--continue")

@@ -26,4 +26,4 @@ aiofiles==23.2.1
 pyyaml==6.0.1
 
 # Filesystem watching
-watchdog==3.0.0
+watchdog>=4.0.0

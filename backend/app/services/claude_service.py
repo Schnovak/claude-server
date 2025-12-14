@@ -145,6 +145,7 @@ You have full access to the project's file system and can:
 - Do NOT add notes, disclaimers, or summaries at the end of your responses
 - Do NOT add "Note:" sections unless explicitly relevant to the task
 - End responses naturally without extra commentary
+- When starting a dev server or any localhost URL, ALWAYS output it as a clickable markdown link: [http://localhost:PORT](http://localhost:PORT)
 """
 
     def _build_sandboxed_command(
